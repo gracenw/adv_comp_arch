@@ -1,0 +1,31 @@
+Cache Settings
+--------------
+L1 (C,B,S): (10,6,1). Insertion policy: MIP
+Victim cache entries: 2
+L2 disabled
+
+Cache Statistics
+----------------
+Reads: 315500
+Writes: 184500
+
+L1 accesses: 500000
+L1 hits: 407045
+L1 misses: 92955
+L1 hit ratio: 0.814
+L1 miss ratio: 0.186
+L1 average access time (AAT): 15.500
+
+Victim Cache hits after L1 miss: 9829
+Victim Cache misses after L1 miss: 83126
+Victim Cache hit ratio: 0.106
+Victim Cache miss ratio: 0.894
+Write-backs from L1 or Victim Cache: 32838
+
+L2 reads: 83126
+L2 writes: 32838
+L2 read hits: 0
+L2 read misses: 83126
+L2 read hit ratio: 0.000
+L2 read miss ratio: 1.000
+L2 average access time (AAT): 80.000
