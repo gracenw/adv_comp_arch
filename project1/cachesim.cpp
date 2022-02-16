@@ -1,3 +1,7 @@
+#include <math.h>
+#include <stdlib.h> 
+#include <vector>
+#include <stdio.h>
 #include "cachesim.hpp"
 
 /* global cache variables */
