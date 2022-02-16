@@ -3,10 +3,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <math.h>
-#include <stdlib.h> 
-#include <vector>
-#include <iostream>
 
 // Combined insertion and replacement policy
 typedef enum insert_policy {
