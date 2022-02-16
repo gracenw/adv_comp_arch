@@ -101,6 +101,8 @@ int available(std::vector<block_t*>& set) {
 
 /* subroutine for initializing the cache simulator */
 void sim_setup(sim_config_t *config) {
+    std::cout << "simulation setup begin /n/n" << std::endl;
+
     /* initialize l1 global cache config values */
     l1_cache.block_size      = pow(2, config->l1_config.b);
     l1_cache.num_ways        = pow(2, config->l1_config.s);
@@ -156,7 +158,7 @@ void sim_setup(sim_config_t *config) {
         vi_cache.sets[0]->lru_stack.reserve(vi_cache.num_ways);
     }
 
-    std::cout << "Simular setup successful /n/n" << std::endl;
+    std::cout << "simulation setup successful /n/n" << std::endl;
 }
 
 /* subroutine that simulates the cache one trace event at a time */
