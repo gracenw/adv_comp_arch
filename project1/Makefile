@@ -1,5 +1,5 @@
-CFLAGS = -MMD -g -Wall -pedantic
-CXXFLAGS = -MMD -g -Wall -pedantic
+CFLAGS = -MMD -g #-Wall -pedantic
+CXXFLAGS = -MMD -g #-Wall -pedantic
 LIBS = -lm
 CC = gcc
 CXX = g++

@@ -437,7 +437,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             }
             
             /* check for open blocks in l2 cache */
-            int open_block = available(l2_cache.sets[victim_index]->blocks);
+            open_block = available(l2_cache.sets[victim_index]->blocks);
 
             if (open_block < 0) {
                 /* no open blocks, need to evict l2 block */
@@ -608,7 +608,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
     }
     
     /* check for open blocks in l2 cache */
-    int open_block = available(l2_cache.sets[victim_index]->blocks);
+    open_block = available(l2_cache.sets[victim_index]->blocks);
 
     if (open_block < 0) {
         /* no open blocks, need to evict l2 block */
