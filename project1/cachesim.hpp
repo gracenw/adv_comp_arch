@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
+#include <stdlib.h> 
+#include <vector>
 
 // Combined insertion and replacement policy
 typedef enum insert_policy {
@@ -99,5 +102,27 @@ static const double L1_HIT_TIME_CONST = 2;
 static const double L1_HIT_TIME_PER_S = 0.2;
 static const double L2_HIT_TIME_CONST = 8;
 static const double L2_HIT_TIME_PER_S = 0.8;
+
+/* STUDENT ADD ONS */
+static const int addr_size = 64;
+
+typedef struct block {
+    uint64_t tag, addr;
+    bool valid, dirty;
+} block_t;
+
+typedef struct set {
+    std::vector<uint64_t> lru_stack;
+    std::vector<block_t*> blocks;
+} set_t;
+
+typedef struct cache {
+    uint64_t num_offset_bits, num_index_bits, num_tag_bits;
+    uint64_t cache_size, block_size;
+    uint64_t num_sets, num_ways;
+    insert_policy_t insert_policy;
+    std::vector<set_t*> sets;
+    bool disabled;
+} cache_t;
 
 #endif /* CACHESIM_HPP */
