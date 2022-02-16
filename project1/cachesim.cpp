@@ -9,8 +9,8 @@ void set_mru(std::vector<uint64_t>& stack, uint64_t tag) {
 	/* temporary array to hold values */
     std::vector<uint64_t> temp(stack.size() - 1);
 
-	int j = 0;
-	for (int i = 0; i < stack.size(); i++) {
+	size_t j = 0;
+	for (size_t i = 0; i < stack.size(); i++) {
         /* special case for lru eviction - won't try to save the lru in the temp array */
         if (i == j && i == (stack.size() - 1)) {
             break;
@@ -27,7 +27,7 @@ void set_mru(std::vector<uint64_t>& stack, uint64_t tag) {
 	stack[0] = tag;
 
 	/* copy over previous indices, shifted down */
-	for (int k = 1; k < stack.size(); k++) {
+	for (size_t k = 1; k < stack.size(); k++) {
 		stack[k] = temp[k-1];
 	}
 }
@@ -36,8 +36,8 @@ void set_lru(std::vector<uint64_t>& stack, uint64_t tag) {
 	/* temporary array to hold values */
     std::vector<uint64_t> temp(stack.size() - 1);
 
-	int j = 0;
-	for (int i = 0; i < stack.size(); i++) {
+	size_t j = 0;
+	for (size_t i = 0; i < stack.size(); i++) {
         /* special case for lru eviction - won't try to save the lru in the temp array */
         if (i == j && i == (stack.size() - 1)) {
             break;
@@ -54,14 +54,14 @@ void set_lru(std::vector<uint64_t>& stack, uint64_t tag) {
 	stack[stack.size() - 1] = tag;
 
 	/* copy over previous indices, shifted down */
-	for (int k = 0; k < stack.size() - 1; k++) {
+	for (size_t k = 0; k < stack.size() - 1; k++) {
 		stack[k] = temp[k];
 	}
 }
 
 void popoff_stack(std::vector<uint64_t>& stack, uint64_t tag) {
     /* remove hit block from victim lru stack */
-    for (int i = 0; i < stack.size(); i++) {
+    for (size_t i = 0; i < stack.size(); i++) {
         if (stack[i] == tag) {
             stack[i] = 0;
             break;
@@ -72,8 +72,8 @@ void popoff_stack(std::vector<uint64_t>& stack, uint64_t tag) {
     std::vector<uint64_t> temp(stack.size());
 
     /* move all 0 spots to bottom of stack */
-    int j = 0;
-    for (int i = 0; i < stack.size(); i++) {
+    size_t j = 0;
+    for (size_t i = 0; i < stack.size(); i++) {
         if (stack[i] != 0) {
             temp[j] = stack[i];
             j++;
@@ -83,7 +83,7 @@ void popoff_stack(std::vector<uint64_t>& stack, uint64_t tag) {
 
 uint64_t get_lru(std::vector<uint64_t>& stack) {
     /* loop until end of valid tags and return index */
-    int i;
+    size_t i;
     for (i = 0; i < stack.size(); i++) {
         if (stack[i] == 0) break;
     }
@@ -92,7 +92,7 @@ uint64_t get_lru(std::vector<uint64_t>& stack) {
 
 int available(std::vector<block_t*>& set) {
     /* return index on first open block */
-    for (int i = 0; i < set.size(); i++) {
+    for (size_t i = 0; i < set.size(); i++) {
         if (!set[i]->valid) return i;
     }
     /* return -1 for no open blocks */
