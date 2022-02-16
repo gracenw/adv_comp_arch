@@ -7,6 +7,7 @@
 #include <stdlib.h> 
 #include <vector>
 #include <iostream>
+#include <bitset>
 
 // Combined insertion and replacement policy
 typedef enum insert_policy {
@@ -107,23 +108,19 @@ static const double L2_HIT_TIME_PER_S = 0.8;
 /* STUDENT ADD ONS */
 static const int addr_size = 64;
 
-typedef struct block {
+struct block {
     uint64_t tag, addr;
     bool valid, dirty;
-} block_t;
 
-typedef struct set {
+    block(): tag(0), addr(0), valid(false), dirty(false) {}
+    block(uint64_t _tag, uint64_t _addr, bool _valid, bool _dirty): tag(_tag), addr(_addr), valid(_valid), dirty(_dirty) {}
+};
+
+struct set {
     std::vector<uint64_t> lru_stack;
-    std::vector<block_t*> blocks;
-} set_t;
+    std::vector<block> blocks;
 
-typedef struct cache {
-    int num_offset_bits, num_index_bits, num_tag_bits;
-    int cache_size, block_size;
-    int num_sets, num_ways;
-    insert_policy_t insert_policy;
-    std::vector<set_t*> sets;
-    bool disabled;
-} cache_t;
+    set() {}
+};
 
 #endif /* CACHESIM_HPP */
