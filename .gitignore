@@ -2,3 +2,4 @@
 **/*.o
 **/*.d
 **/cachesim
+**/debug_outs

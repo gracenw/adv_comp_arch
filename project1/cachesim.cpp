@@ -1,5 +1,36 @@
 #include "cachesim.hpp"
 
+#include <math.h>
+#include <stdlib.h> 
+#include <vector>
+#include <iostream>
+
+static const int addr_size = 64;
+
+// struct block {
+//     uint64_t tag, addr;
+//     bool valid, dirty;
+// };
+
+struct set {
+    std::vector<uint64_t> lru_stack;
+    std::vector<std::vector<uint64_t>> blocks; /* 0 is addr, 1 is tag, 2 is valid, 3 is dirty */
+    int length;
+
+    set(int _length): length(_length) {
+        lru_stack.resize(_length);
+        blocks.resize(_length);
+        for (int i = 0; i < _length; i++) {
+            blocks[i].resize(4);
+            blocks[i][0] = 0;
+            blocks[i][1] = 0;
+            blocks[i][2] = 0;
+            blocks[i][3] = 0;
+            lru_stack[i] = 0;
+        }
+    }
+};
+
 /* global cache variables */
 std::vector<set> l1_cache;
 std::vector<set> l2_cache;
@@ -97,10 +128,10 @@ uint64_t get_lru(std::vector<uint64_t>& stack) {
     return stack[i - 1];
 }
 
-int available(std::vector<block>& set) {
+int available(std::vector<std::vector<uint64_t>>& set) {
     /* return index on first open block */
     for (size_t i = 0; i < set.size(); i++) {
-        if (!set[i].valid) return i;
+        if (!set[i][2]) return i;
     }
     /* return -1 for no open blocks */
     return -1;
@@ -119,11 +150,7 @@ void sim_setup(sim_config_t *config) {
     l1_num_tag_bits = addr_size - (l1_num_index_bits + num_offset_bits);
 
     for (int i = 0; i < l1_num_sets; i++) {
-        l1_cache[i] = set{};
-        for (int j = 0; j < l1_num_ways;j++) {
-            l1_cache[i].blocks[j] = block{};
-            l1_cache[i].lru_stack[j] = 0;
-        }
+        l1_cache.push_back(set(l1_num_ways));
     }
 
     /* initialize l2 global cache config values */
@@ -137,11 +164,7 @@ void sim_setup(sim_config_t *config) {
         l2_insert_policy = config->l2_config.insert_policy;
 
         for (int i = 0; i < l2_num_sets; i++) {
-            l2_cache[i] = set{};
-            for (int j = 0; j < l2_num_ways;j++) {
-                l2_cache[i].blocks[j] = block{};
-                l2_cache[i].lru_stack[j] = 0;
-            }
+            l2_cache.push_back(set(l2_num_ways));
         }
     }
 
@@ -151,12 +174,10 @@ void sim_setup(sim_config_t *config) {
         vi_num_ways = config->victim_cache_entries;
         vi_cache_size = block_size * vi_num_ways;
         vi_num_tag_bits = addr_size - num_offset_bits;
-
-        vi_cache[0] = set{};
-        for (int j = 0; j < l1_num_ways;j++) {
-            vi_cache[0].blocks[j] = block{};
-            vi_cache[0].lru_stack[j] = 0;
-        }
+        vi_cache.push_back(set(vi_num_ways));
+        // std::cout << vi_cache.size() << std::endl;
+        // std::cout << vi_cache[0].blocks.size() << std::endl;
+        // std::cout << vi_cache[0].blocks[0].size() << std::endl;
     }
 }
 
@@ -173,7 +194,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
     bool hit = false;
     int hit_block;
     for (hit_block = 0; hit_block < l1_num_ways; hit_block++) {
-        if (l1_cache[l1_index].blocks[hit_block].tag == l1_tag && l1_cache[l1_index].blocks[hit_block].valid) {
+        if (l1_cache[l1_index].blocks[hit_block][1] == l1_tag && l1_cache[l1_index].blocks[hit_block][2]) {
             hit = true;
             break;
         }
@@ -187,7 +208,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         /* determine if read or write */
         if (rw == WRITE) {
             /* set dirty bit */
-            l1_cache[l1_index].blocks[hit_block].dirty = true;
+            l1_cache[l1_index].blocks[hit_block][3] = true;
 
             /* increment writes */
             stats->writes++;
@@ -212,9 +233,19 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         /* update tag */
         vi_tag = (addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
 
+        // std::cout << std::endl << "CAN I KICK IT?! " << vi_tag << std::endl << "victim blocks - " << std::endl;
+        // for (int i = 0; i < vi_num_ways; i++) {
+        //     std::cout << vi_cache[0].blocks[i][1] << std::endl;
+        // }
+        // std::cout << "lru stack - " << std::endl;
+        // for (int i = 0; i < vi_num_ways; i++) {
+        //     std::cout << vi_cache[0].lru_stack[i] << std::endl;
+        // }
+        // std::cout << std::endl;
+
         /* search victim cache for tag */
         for (hit_block = 0; hit_block < vi_num_ways; hit_block++) {
-            if (vi_cache[0].blocks[hit_block].tag == vi_tag && vi_cache[0].blocks[hit_block].valid) {
+            if (vi_cache[0].blocks[hit_block][1] == vi_tag && vi_cache[0].blocks[hit_block][2]) {
                 hit = true;
                 break;
             }
@@ -228,7 +259,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             /* determine if read or write */
             if (rw == WRITE) {
                 /* set dirty bit */
-                vi_cache[0].blocks[hit_block].dirty = true;
+                vi_cache[0].blocks[hit_block][3] = true;
 
                 /* increment writes */
                 stats->writes++;
@@ -241,47 +272,56 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             /* see if set in l1 has empty spots */
             int open_block = available(l1_cache[l1_index].blocks);
             if (open_block < 0) {
+                // std::cout << "NO FREE LUNCH " << vi_tag << std::endl;
                 /* no open spots in l1 set, must evict - get the lru for the hit block's set in l1 */
                 uint64_t l1_lru_tag = get_lru(l1_cache[l1_index].lru_stack);
 
                 /* swap actual blocks in victim and l1 */
                 for (int i = 0; i < l1_num_ways; i++) {
-                    if (l1_cache[l1_index].blocks[i].tag == l1_lru_tag && l1_cache[l1_index].blocks[i].valid) {
+                    if (l1_cache[l1_index].blocks[i][1] == l1_lru_tag && l1_cache[l1_index].blocks[i][2]) {
                         /* exchange block info */
-                        int temp_hit_dirty = vi_cache[0].blocks[hit_block].dirty;
+                        int temp_hit_dirty = vi_cache[0].blocks[hit_block][3];
 
-                        vi_cache[0].blocks[hit_block].dirty = l1_cache[l1_index].blocks[i].dirty;
-                        vi_cache[0].blocks[hit_block].tag = (l1_cache[l1_index].blocks[i].addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
-                        vi_cache[0].blocks[hit_block].valid = true;
-                        vi_cache[0].blocks[hit_block].addr = l1_cache[l1_index].blocks[i].addr;
+                        vi_cache[0].blocks[hit_block][3] = l1_cache[l1_index].blocks[i][3];
+                        vi_cache[0].blocks[hit_block][1] = (l1_cache[l1_index].blocks[i][0] >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
+                        vi_cache[0].blocks[hit_block][2] = true;
+                        vi_cache[0].blocks[hit_block][0] = l1_cache[l1_index].blocks[i][0];
 
-                        l1_cache[l1_index].blocks[i].dirty = temp_hit_dirty;
-                        l1_cache[l1_index].blocks[i].valid = true;
-                        l1_cache[l1_index].blocks[i].tag = l1_tag;
-                        l1_cache[l1_index].blocks[i].addr = addr;
+                        l1_cache[l1_index].blocks[i][3] = temp_hit_dirty;
+                        l1_cache[l1_index].blocks[i][2] = true;
+                        l1_cache[l1_index].blocks[i][1] = l1_tag;
+                        l1_cache[l1_index].blocks[i][0] = addr;
 
                         break;
                     }
                 }
 
+                /* remove evicted block from l1 lru stack */
+                popoff_stack(l1_cache[l1_index].lru_stack, l1_lru_tag);
+
+                /* remove hit block from victim lru stack */
+                popoff_stack(vi_cache[0].lru_stack, vi_tag);
+
                 /* swap tags in victim and l1 lru stacks */
-                set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[hit_block].tag);
+                // if (vi_cache[0].blocks[hit_block][1] == 35234205) std::cout << "FLAG 289" << std::endl;
+                set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[hit_block][1]);
                 set_mru(l1_cache[l1_index].lru_stack, l1_tag);
 
                 return;
             }
             else {
                 /* open spot available, save hit block in l1 */
-                l1_cache[l1_index].blocks[open_block].tag = l1_tag;
-                l1_cache[l1_index].blocks[open_block].addr = addr;
-                l1_cache[l1_index].blocks[open_block].dirty = vi_cache[0].blocks[hit_block].dirty;
-                l1_cache[l1_index].blocks[open_block].valid = true;
+                l1_cache[l1_index].blocks[open_block][1] = l1_tag;
+                l1_cache[l1_index].blocks[open_block][0] = addr;
+                l1_cache[l1_index].blocks[open_block][3] = vi_cache[0].blocks[hit_block][3];
+                l1_cache[l1_index].blocks[open_block][2] = true;
 
                 /* remove hit block from victim lru stack */
+                // if (vi_tag == 35234205) std::cout << "FLAG 303" << std::endl;
                 popoff_stack(vi_cache[0].lru_stack, vi_tag);
 
                 /* remove hit block from victim block list */
-                vi_cache[0].blocks[hit_block].valid = 0;
+                vi_cache[0].blocks[hit_block][2] = 0;
 
                 /* set incoming hit block to mru in l1 */
                 set_mru(l1_cache[l1_index].lru_stack, l1_tag);
@@ -309,7 +349,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
         /* search l2 cache for tag */
         for (hit_block = 0; hit_block < l2_num_ways; hit_block++) {
-            if (l2_cache[l2_index].blocks[hit_block].tag == l2_tag && l2_cache[l2_index].blocks[hit_block].valid) {
+            if (l2_cache[l2_index].blocks[hit_block][1] == l2_tag && l2_cache[l2_index].blocks[hit_block][2]) {
                 hit = true;
                 break;
             }
@@ -334,11 +374,12 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             popoff_stack(l2_cache[l2_index].lru_stack, l2_tag);
             
             /* remove hit block from l2 */
-            l2_cache[l2_index].blocks[hit_block].valid = false;
+            l2_cache[l2_index].blocks[hit_block][2] = false;
 
             /* check if there are open spots in l1 set for l2 hit block */
             int open_block = available(l1_cache[l1_index].blocks);
-            block l1_evicted_block = block{};
+            uint64_t l1_evicted_addr;
+            bool l1_evicted_dirty;
             if (open_block < 0) {
                 /* no spots available, get l1 lru tag */
                 uint64_t l1_lru_tag = get_lru(l1_cache[l1_index].lru_stack);
@@ -346,27 +387,27 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
                 /* get index of l1 lru in blocks */
                 int l1_lru;
                 for (l1_lru = 0; l1_lru < l1_num_ways; l1_lru++) {
-                    if (l1_cache[l1_index].blocks[l1_lru].tag == l1_lru_tag) break;
+                    if (l1_cache[l1_index].blocks[l1_lru][1] == l1_lru_tag) break;
                 }
 
                 /* bring in l2 hit, evict l1 lru to victim (if enabled) */
-                l1_evicted_block.addr = l1_cache[l1_index].blocks[l1_lru].addr;
-                l1_evicted_block.dirty = l1_cache[l1_index].blocks[l1_lru].dirty;
+                l1_evicted_addr = l1_cache[l1_index].blocks[l1_lru][0];
+                l1_evicted_dirty = l1_cache[l1_index].blocks[l1_lru][3];
 
-                l1_cache[l1_index].blocks[l1_lru].addr = addr;
-                l1_cache[l1_index].blocks[l1_lru].tag = l1_tag;
-                l1_cache[l1_index].blocks[l1_lru].valid = true;
-                l1_cache[l1_index].blocks[l1_lru].dirty = false;
+                l1_cache[l1_index].blocks[l1_lru][0] = addr;
+                l1_cache[l1_index].blocks[l1_lru][1] = l1_tag;
+                l1_cache[l1_index].blocks[l1_lru][2] = true;
+                l1_cache[l1_index].blocks[l1_lru][3] = false;
 
                 popoff_stack(l1_cache[l1_index].lru_stack, l1_lru_tag);
                 set_mru(l1_cache[l1_index].lru_stack, l1_tag);
             }
             else {
                 /* open spot in hit block's l1 set, bring in block */
-                l1_cache[l1_index].blocks[open_block].addr = addr;
-                l1_cache[l1_index].blocks[open_block].tag = l1_tag;
-                l1_cache[l1_index].blocks[open_block].valid = true;
-                l1_cache[l1_index].blocks[open_block].dirty = false;
+                l1_cache[l1_index].blocks[open_block][0] = addr;
+                l1_cache[l1_index].blocks[open_block][1] = l1_tag;
+                l1_cache[l1_index].blocks[open_block][2] = true;
+                l1_cache[l1_index].blocks[open_block][3] = false;
 
                 set_mru(l1_cache[l1_index].lru_stack, l1_tag);
 
@@ -374,7 +415,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             }            
 
             /* now save l1 victim to victim cache - if enabled and there is a victim */
-            block vi_evicted_block;
+            uint64_t vi_evicted_addr;
             if (!vi_disabled) {
                 /* check for open blocks in victim cache */
                 int open_block = available(vi_cache[0].blocks);
@@ -386,34 +427,36 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
                     /* get index of victim lru block */
                     int vi_lru;
                     for (vi_lru = 0; vi_lru < vi_num_ways; vi_lru++) {
-                        if (vi_cache[0].blocks[vi_lru].tag == vi_lru_tag) break;
+                        if (vi_cache[0].blocks[vi_lru][1] == vi_lru_tag) break;
                     }
 
                     /* save evicted victim lru to temp block */
-                    vi_evicted_block.addr = vi_cache[0].blocks[vi_lru].addr;
-                    vi_evicted_block.dirty = vi_cache[0].blocks[vi_lru].dirty;
+                    vi_evicted_addr = vi_cache[0].blocks[vi_lru][0];
 
                     /* update victim cache block with evicted l1 block info */
-                    vi_cache[0].blocks[vi_lru].addr = l1_evicted_block.addr;
-                    vi_cache[0].blocks[vi_lru].tag = (l1_evicted_block.addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
-                    vi_cache[0].blocks[vi_lru].dirty = l1_evicted_block.dirty;
-                    vi_cache[0].blocks[vi_lru].valid = true;
+                    vi_cache[0].blocks[vi_lru][0] = l1_evicted_addr;
+                    vi_cache[0].blocks[vi_lru][1] = (l1_evicted_addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
+                    vi_cache[0].blocks[vi_lru][3] = l1_evicted_dirty;
+                    vi_cache[0].blocks[vi_lru][2] = true;
+
+                    // if (vi_cache[0].blocks[vi_lru][1] == 35234205) std::cout << "FLAG 424" << std::endl;
 
                     /* remove victim cache lru from lru stack */
                     popoff_stack(vi_cache[0].lru_stack, vi_lru_tag);
 
                     /* set l1 victim tag, now in victim cache, to mru */
-                    set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[vi_lru].tag);
+                    set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[vi_lru][1]);
                 }
                 else {
                     /* open spot in victim cache, bring in l1 victim */
-                    vi_cache[0].blocks[open_block].addr = l1_evicted_block.addr;
-                    vi_cache[0].blocks[open_block].tag = (l1_evicted_block.addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);;
-                    vi_cache[0].blocks[open_block].valid = true;
-                    vi_cache[0].blocks[open_block].dirty = l1_evicted_block.dirty;
+                    vi_cache[0].blocks[open_block][0] = l1_evicted_addr;
+                    vi_cache[0].blocks[open_block][1] = (l1_evicted_addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);;
+                    vi_cache[0].blocks[open_block][2] = true;
+                    vi_cache[0].blocks[open_block][3] = l1_evicted_dirty;
 
                     /* set newly filled block to mru */
-                    set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[open_block].tag);
+                    // if (vi_cache[0].blocks[open_block][1] == 35234205) std::cout << "FLAG 440" << std::endl;
+                    set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[open_block][1]);
 
                     return;
                 }
@@ -421,13 +464,13 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
             /* save either l1 lru or victim lru to l2 */
             uint64_t victim_index;
-            if (vi_evicted_block.addr == 0) {
+            if (vi_evicted_addr == 0) {
                 /* current incoming block is from l1 */
-                victim_index = (l1_evicted_block.addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
+                victim_index = (l1_evicted_addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
             }
             else {
                 /* current incoming block is from the victim cache */
-                victim_index = (vi_evicted_block.addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
+                victim_index = (vi_evicted_addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
             }
             
             /* check for open blocks in l2 cache */
@@ -440,55 +483,61 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
                 /* get index of victim lru block */
                 int l2_lru;
                 for (l2_lru = 0; l2_lru < l2_num_ways; l2_lru++) {
-                    if (l2_cache[0].blocks[l2_lru].tag == l2_lru_tag) break;
+                    if (l2_cache[0].blocks[l2_lru][1] == l2_lru_tag) break;
                 }
 
                 /* update l2 cache block with evicted l1/victim block info */
-                if (vi_evicted_block.addr == 0) {
-                    l2_cache[victim_index].blocks[l2_lru].addr = l1_evicted_block.addr;
-                    l2_cache[victim_index].blocks[l2_lru].tag = (l1_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-                    l2_cache[victim_index].blocks[l2_lru].dirty = false;
-                    l2_cache[victim_index].blocks[l2_lru].valid = true;
+                if (vi_evicted_addr == 0) {
+                    l2_cache[victim_index].blocks[l2_lru][0] = l1_evicted_addr;
+                    l2_cache[victim_index].blocks[l2_lru][1] = (l1_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+                    l2_cache[victim_index].blocks[l2_lru][3] = false;
+                    l2_cache[victim_index].blocks[l2_lru][2] = true;
                 }
                 else {
-                    l2_cache[victim_index].blocks[l2_lru].addr = vi_evicted_block.addr;
-                    l2_cache[victim_index].blocks[l2_lru].tag = (vi_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-                    l2_cache[victim_index].blocks[l2_lru].dirty = false;
-                    l2_cache[victim_index].blocks[l2_lru].valid = true;
+                    l2_cache[victim_index].blocks[l2_lru][0] = vi_evicted_addr;
+                    l2_cache[victim_index].blocks[l2_lru][1] = (vi_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+                    l2_cache[victim_index].blocks[l2_lru][3] = false;
+                    l2_cache[victim_index].blocks[l2_lru][2] = true;
                 }
+
+                /* increment write backs as victim block is no longer dirty in l2 */
+                stats->write_backs_l1_or_victim_cache++;
 
                 /* remove l2 cache lru from lru stack */
                 popoff_stack(l2_cache[victim_index].lru_stack, l2_lru_tag);
 
                 /* set l1/victim lru tag, now in l2 cache, to mru OR lru depending on insertion policy */
                 if (l2_insert_policy == INSERT_POLICY_MIP) {
-                    set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru].tag);
+                    set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru][1]);
                 }
                 else {
-                    set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru].tag);
+                    set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru][1]);
                 }
             }
             else {
                 /* open spot in l2 cache, bring in l1/victim lru */
-                if (vi_evicted_block.addr == 0) {
-                    l2_cache[victim_index].blocks[open_block].addr = l1_evicted_block.addr;
-                    l2_cache[victim_index].blocks[open_block].tag = (l1_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-                    l2_cache[victim_index].blocks[open_block].dirty = false;
-                    l2_cache[victim_index].blocks[open_block].valid = true;
+                if (vi_evicted_addr == 0) {
+                    l2_cache[victim_index].blocks[open_block][0] = l1_evicted_addr;
+                    l2_cache[victim_index].blocks[open_block][1] = (l1_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+                    l2_cache[victim_index].blocks[open_block][3] = false;
+                    l2_cache[victim_index].blocks[open_block][2] = true;
                 }
                 else {
-                    l2_cache[victim_index].blocks[open_block].addr = vi_evicted_block.addr;
-                    l2_cache[victim_index].blocks[open_block].tag = (vi_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-                    l2_cache[victim_index].blocks[open_block].dirty = false;
-                    l2_cache[victim_index].blocks[open_block].valid = true;
+                    l2_cache[victim_index].blocks[open_block][0] = vi_evicted_addr;
+                    l2_cache[victim_index].blocks[open_block][1] = (vi_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+                    l2_cache[victim_index].blocks[open_block][3] = false;
+                    l2_cache[victim_index].blocks[open_block][2] = true;
                 }
+
+                /* increment write backs as victim block is no longer dirty in l2 */
+                stats->write_backs_l1_or_victim_cache++;
 
                 /* set newly filled block to mru OR lru depending on insertion policy */
                 if (l2_insert_policy == INSERT_POLICY_MIP) {
-                    set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block].tag);
+                    set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block][1]);
                 }
                 else {
-                    set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block].tag);
+                    set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block][1]);
                 }
 
                 return;
@@ -508,7 +557,8 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
     /* see if there are any spots in l1 */
     int open_block = available(l1_cache[l1_index].blocks);
-    block l1_evicted_block;
+    uint64_t l1_evicted_addr;
+    bool l1_evicted_dirty;
     if (open_block < 0) {
         /* no spots available, get l1 lru tag */
         uint64_t l1_lru_tag = get_lru(l1_cache[l1_index].lru_stack);
@@ -516,27 +566,27 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         /* get index of l1 lru in blocks */
         int l1_lru;
         for (l1_lru = 0; l1_lru < l1_num_ways; l1_lru++) {
-            if (l1_cache[l1_index].blocks[l1_lru].tag == l1_lru_tag) break;
+            if (l1_cache[l1_index].blocks[l1_lru][1] == l1_lru_tag) break;
         }
 
         /* bring in DRAM hit, evict l1 lru to victim (if enabled) */
-        l1_evicted_block.addr = l1_cache[l1_index].blocks[l1_lru].addr;
-        l1_evicted_block.dirty = l1_cache[l1_index].blocks[l1_lru].dirty;
+        l1_evicted_addr = l1_cache[l1_index].blocks[l1_lru][0];
+        l1_evicted_dirty = l1_cache[l1_index].blocks[l1_lru][3];
 
-        l1_cache[l1_index].blocks[l1_lru].addr = addr;
-        l1_cache[l1_index].blocks[l1_lru].tag = l1_tag;
-        l1_cache[l1_index].blocks[l1_lru].valid = true;
-        l1_cache[l1_index].blocks[l1_lru].dirty = false;
+        l1_cache[l1_index].blocks[l1_lru][0] = addr;
+        l1_cache[l1_index].blocks[l1_lru][1] = l1_tag;
+        l1_cache[l1_index].blocks[l1_lru][2] = true;
+        l1_cache[l1_index].blocks[l1_lru][3] = false;
 
         popoff_stack(l1_cache[l1_index].lru_stack, l1_lru_tag);
         set_mru(l1_cache[l1_index].lru_stack, l1_tag);
     }
     else {
         /* save block from memory into open block */
-        l1_cache[l1_index].blocks[open_block].tag = l1_tag;
-        l1_cache[l1_index].blocks[open_block].addr = addr;
-        l1_cache[l1_index].blocks[open_block].valid = true;
-        l1_cache[l1_index].blocks[open_block].dirty = false;
+        l1_cache[l1_index].blocks[open_block][1] = l1_tag;
+        l1_cache[l1_index].blocks[open_block][0] = addr;
+        l1_cache[l1_index].blocks[open_block][2] = true;
+        l1_cache[l1_index].blocks[open_block][3] = false;
 
         /* set incoming block as the mru */
         set_mru(l1_cache[l1_index].lru_stack, l1_tag);
@@ -545,7 +595,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
     }
 
     /* now check victim cache for open spots - if there was an eviction in previous stage */
-    block vi_evicted_block;
+    uint64_t vi_evicted_addr;
     if (!vi_disabled) {
         /* check for open blocks in victim cache */
         int open_block = available(vi_cache[0].blocks);
@@ -553,38 +603,50 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         if (open_block < 0) {
             /* no open blocks, need to evict victim lru */
             uint64_t vi_lru_tag = get_lru(vi_cache[0].lru_stack);
+            // std::cout << "vi_lru_tag: " << vi_lru_tag << std::endl;
+
+            // std::cout << "vi lru stack: " << std::endl;
+            // for (int i = 0; i < vi_num_ways; i++) {
+            //     std::cout << vi_cache[0].lru_stack[i] << std::endl;
+            // }
 
             /* get index of victim lru block */
             int vi_lru;
+            // std::cout << "vi blocks: " << std::endl;
+            // for (int i = 0; i < vi_num_ways; i++) {
+            //     if (vi_cache[0].blocks[i][2] == true) std::cout << vi_cache[0].blocks[i][1] << std::endl;
+            // }
             for (vi_lru = 0; vi_lru < vi_num_ways; vi_lru++) {
-                if (vi_cache[0].blocks[vi_lru].tag == vi_lru_tag) break;
+                // std::cout << vi_cache[0].blocks[vi_lru][1] << std::endl;
+                if (vi_cache[0].blocks[vi_lru][1] == vi_lru_tag) break;
             }
 
             /* save evicted victim lru to temp block */
-            vi_evicted_block.addr = vi_cache[0].blocks[vi_lru].addr;
-            vi_evicted_block.dirty = vi_cache[0].blocks[vi_lru].dirty;
+            vi_evicted_addr = vi_cache[0].blocks[vi_lru][0];
 
             /* update victim cache block with evicted l1 block info */
-            vi_cache[0].blocks[vi_lru].addr = l1_evicted_block.addr;
-            vi_cache[0].blocks[vi_lru].tag = (l1_evicted_block.addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
-            vi_cache[0].blocks[vi_lru].dirty = l1_evicted_block.dirty;
-            vi_cache[0].blocks[vi_lru].valid = true;
+            vi_cache[0].blocks[vi_lru][0] = l1_evicted_addr;
+            vi_cache[0].blocks[vi_lru][1] = (l1_evicted_addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);
+            vi_cache[0].blocks[vi_lru][3] = l1_evicted_dirty;
+            vi_cache[0].blocks[vi_lru][2] = true;
 
             /* remove victim cache lru from lru stack */
+            // if (vi_lru_tag == 35234205) std::cout << "FLAG 617" << std::endl;
             popoff_stack(vi_cache[0].lru_stack, vi_lru_tag);
 
             /* set l1 victim tag, now in victim cache, to mru */
-            set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[vi_lru].tag);
+            set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[vi_lru][1]);
         }
         else {
             /* open spot in victim cache, bring in l1 victim */
-            vi_cache[0].blocks[open_block].addr = l1_evicted_block.addr;
-            vi_cache[0].blocks[open_block].tag = (l1_evicted_block.addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);;
-            vi_cache[0].blocks[open_block].valid = true;
-            vi_cache[0].blocks[open_block].dirty = l1_evicted_block.dirty;
+            vi_cache[0].blocks[open_block][0] = l1_evicted_addr;
+            vi_cache[0].blocks[open_block][1] = (l1_evicted_addr >> num_offset_bits) & ((1 << vi_num_tag_bits) - 1);;
+            vi_cache[0].blocks[open_block][2] = true;
+            vi_cache[0].blocks[open_block][3] = l1_evicted_dirty;
 
             /* set newly filled block to mru */
-            set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[open_block].tag);
+            // if (vi_cache[0].blocks[open_block][1] == 35234205) std::cout << "FLAG 631" << std::endl;
+            set_mru(vi_cache[0].lru_stack, vi_cache[0].blocks[open_block][1]);
 
             return;
         }
@@ -592,13 +654,13 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
     /* finally - save evicted block to l2 if needed and enabled; otherwise block just goes back to DRAM */
     uint64_t victim_index;
-    if (vi_evicted_block.addr == 0) {
+    if (vi_evicted_addr == 0) {
         /* current incoming block is from l1 */
-        victim_index = (l1_evicted_block.addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
+        victim_index = (l1_evicted_addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
     }
     else {
         /* current incoming block is from the victim cache */
-        victim_index = (vi_evicted_block.addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
+        victim_index = (vi_evicted_addr >> num_offset_bits) & ((1 << l2_num_index_bits) - 1);
     }
     
     /* check for open blocks in l2 cache */
@@ -611,55 +673,76 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         /* get index of victim lru block */
         int l2_lru;
         for (l2_lru = 0; l2_lru < l2_num_ways; l2_lru++) {
-            if (l2_cache[0].blocks[l2_lru].tag == l2_lru_tag) break;
+            if (l2_cache[victim_index].blocks[l2_lru][1] == l2_lru_tag) break;
+        }
+
+        if (l2_lru == l2_num_ways) {
+            std::cout << "FUCK " << addr << std::endl;
+            for (int i = 0; i < l2_num_ways; i++) {
+                bool match = false;
+                for (int g = 0; g < l2_num_ways; g++) {
+                    if (l2_cache[victim_index].blocks[i][1] == l2_cache[victim_index].lru_stack[g] && l2_cache[victim_index].blocks[i][2]) {
+                        match = true;
+                    }
+                }
+                if (!match) {
+                    std::cout << "FUCK PT 2 " << addr << std::endl;
+                }
+            }
         }
 
         /* update l2 cache block with evicted l1/victim block info */
-        if (vi_evicted_block.addr == 0) {
-            l2_cache[victim_index].blocks[l2_lru].addr = l1_evicted_block.addr;
-            l2_cache[victim_index].blocks[l2_lru].tag = (l1_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-            l2_cache[victim_index].blocks[l2_lru].dirty = false;
-            l2_cache[victim_index].blocks[l2_lru].valid = true;
+        if (vi_evicted_addr == 0) {
+            l2_cache[victim_index].blocks[l2_lru][0] = l1_evicted_addr;
+            l2_cache[victim_index].blocks[l2_lru][1] = (l1_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+            l2_cache[victim_index].blocks[l2_lru][3] = false;
+            l2_cache[victim_index].blocks[l2_lru][2] = true;
         }
         else {
-            l2_cache[victim_index].blocks[l2_lru].addr = vi_evicted_block.addr;
-            l2_cache[victim_index].blocks[l2_lru].tag = (vi_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-            l2_cache[victim_index].blocks[l2_lru].dirty = false;
-            l2_cache[victim_index].blocks[l2_lru].valid = true;
+            l2_cache[victim_index].blocks[l2_lru][0] = vi_evicted_addr;
+            l2_cache[victim_index].blocks[l2_lru][1] = (vi_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+            l2_cache[victim_index].blocks[l2_lru][3] = false;
+            l2_cache[victim_index].blocks[l2_lru][2] = true;
         }
+
+        /* increment write backs as victim block is no longer dirty in l2 */
+        stats->write_backs_l1_or_victim_cache++;
 
         /* remove l2 cache lru from lru stack */
         popoff_stack(l2_cache[victim_index].lru_stack, l2_lru_tag);
 
         /* set l1/victim lru tag, now in l2 cache, to mru OR lru depending on insertion policy */
         if (l2_insert_policy == INSERT_POLICY_MIP) {
-            set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru].tag);
+            set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru][1]);
         }
         else {
-            set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru].tag);
+            set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[l2_lru][1]);
         }
     }
     else {
         /* open spot in l2 cache, bring in l1/victim lru */
-        if (vi_evicted_block.addr == 0) {
-            l2_cache[victim_index].blocks[open_block].addr = l1_evicted_block.addr;
-            l2_cache[victim_index].blocks[open_block].tag = (l1_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-            l2_cache[victim_index].blocks[open_block].dirty = false;
-            l2_cache[victim_index].blocks[open_block].valid = true;
+        if (vi_evicted_addr == 0) {
+            l2_cache[victim_index].blocks[open_block][0] = l1_evicted_addr;
+            l2_cache[victim_index].blocks[open_block][1] = (l1_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+            l2_cache[victim_index].blocks[open_block][3] = false;
+            l2_cache[victim_index].blocks[open_block][2] = true;
         }
         else {
-            l2_cache[victim_index].blocks[open_block].addr = vi_evicted_block.addr;
-            l2_cache[victim_index].blocks[open_block].tag = (vi_evicted_block.addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
-            l2_cache[victim_index].blocks[open_block].dirty = false;
-            l2_cache[victim_index].blocks[open_block].valid = true;
+            l2_cache[victim_index].blocks[open_block][0] = vi_evicted_addr;
+            l2_cache[victim_index].blocks[open_block][1] = (vi_evicted_addr >> (l2_num_index_bits + num_offset_bits)) & ((1 << l2_num_tag_bits) - 1);
+            l2_cache[victim_index].blocks[open_block][3] = false;
+            l2_cache[victim_index].blocks[open_block][2] = true;
         }
+
+        /* increment write backs as victim block is no longer dirty in l2 */
+        stats->write_backs_l1_or_victim_cache++;
 
         /* set newly filled block to mru OR lru depending on insertion policy */
         if (l2_insert_policy == INSERT_POLICY_MIP) {
-            set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block].tag);
+            set_mru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block][1]);
         }
         else {
-            set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block].tag);
+            set_lru(l2_cache[victim_index].lru_stack, l2_cache[victim_index].blocks[open_block][1]);
         }
 
         return;
@@ -679,5 +762,22 @@ void sim_finish(sim_stats_t *stats) {
     // stats->avg_access_time_l2 = ;
     // stats->read_hit_ratio_l2 = ;
     // stats->read_miss_ratio_l2 = ;
+
+    // /* free blocks */
+    // for (int i = 0; i < l1_num_sets; i++) {
+    //     for (int j = 0; j < l1_num_ways; j++) {
+    //         delete l1_cache[i].blocks[j];
+    //     }
+    // }
+
+    // for (int i = 0; i < l2_num_sets; i++) {
+    //     for (int j = 0; j < l2_num_ways; j++) {
+    //         delete l2_cache[i].blocks[j];
+    //     }
+    // }
+
+    // for (int j = 0; j < vi_num_ways; j++) {
+    //     delete vi_cache[0].blocks[j];
+    // }
 }
 
