@@ -159,8 +159,7 @@ void sim_setup(sim_config_t *config) {
 
 /* subroutine that simulates the cache one trace event at a time */
 void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
-    /* get tag, index, offset */
-    int offset_start = 0;
+    /* get tag, index */
     int l1_index_start = l1_cache.num_offset_bits;
     int l1_tag_start = l1_cache.num_index_bits + l1_index_start;
     uint64_t l1_tag = (addr >> l1_tag_start) & ((1 << l1_cache.num_tag_bits) - 1);

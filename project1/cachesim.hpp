@@ -117,9 +117,9 @@ typedef struct set {
 } set_t;
 
 typedef struct cache {
-    uint64_t num_offset_bits, num_index_bits, num_tag_bits;
-    uint64_t cache_size, block_size;
-    uint64_t num_sets, num_ways;
+    int num_offset_bits, num_index_bits, num_tag_bits;
+    int cache_size, block_size;
+    int num_sets, num_ways;
     insert_policy_t insert_policy;
     std::vector<set_t*> sets;
     bool disabled;
