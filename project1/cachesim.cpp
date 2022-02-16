@@ -63,7 +63,7 @@ void popoff_stack(std::vector<uint64_t>& stack, uint64_t tag) {
     /* remove hit block from victim lru stack */
     for (int i = 0; i < stack.size(); i++) {
         if (stack[i] == tag) {
-            stack[i] = NULL;
+            stack[i] = 0;
             break;
         }
     }
@@ -71,10 +71,10 @@ void popoff_stack(std::vector<uint64_t>& stack, uint64_t tag) {
     /* temporary array to hold values */
     std::vector<uint64_t> temp(stack.size());
 
-    /* move all null spots to bottom of stack */
+    /* move all 0 spots to bottom of stack */
     int j = 0;
     for (int i = 0; i < stack.size(); i++) {
-        if (stack[i] != NULL) {
+        if (stack[i] != 0) {
             temp[j] = stack[i];
             j++;
         }
@@ -85,7 +85,7 @@ uint64_t get_lru(std::vector<uint64_t>& stack) {
     /* loop until end of valid tags and return index */
     int i;
     for (i = 0; i < stack.size(); i++) {
-        if (stack[i] == NULL) break;
+        if (stack[i] == 0) break;
     }
     return stack[i - 1];
 }
@@ -427,7 +427,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
             /* save either l1 lru or victim lru to l2 */
             uint64_t victim_index;
-            if (vi_evicted_block.addr == NULL) {
+            if (vi_evicted_block.addr == 0) {
                 /* current incoming block is from l1 */
                 victim_index = (l1_evicted_block.addr >> l2_index_start) & ((1 << l2_cache.num_index_bits) - 1);
             }
@@ -450,7 +450,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
                 }
 
                 /* update l2 cache block with evicted l1/victim block info */
-                if (vi_evicted_block.addr == NULL) {
+                if (vi_evicted_block.addr == 0) {
                     l2_cache.sets[victim_index]->blocks[l2_lru]->addr = l1_evicted_block.addr;
                     l2_cache.sets[victim_index]->blocks[l2_lru]->tag = (l1_evicted_block.addr >> l2_tag_start) & ((1 << l2_cache.num_tag_bits) - 1);
                     l2_cache.sets[victim_index]->blocks[l2_lru]->dirty = false;
@@ -476,7 +476,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
             }
             else {
                 /* open spot in l2 cache, bring in l1/victim lru */
-                if (vi_evicted_block.addr == NULL) {
+                if (vi_evicted_block.addr == 0) {
                     l2_cache.sets[victim_index]->blocks[open_block]->addr = l1_evicted_block.addr;
                     l2_cache.sets[victim_index]->blocks[open_block]->tag = (l1_evicted_block.addr >> l2_tag_start) & ((1 << l2_cache.num_tag_bits) - 1);
                     l2_cache.sets[victim_index]->blocks[open_block]->dirty = false;
@@ -598,7 +598,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
 
     /* finally - save evicted block to l2 if needed and enabled; otherwise block just goes back to DRAM */
     uint64_t victim_index;
-    if (vi_evicted_block.addr == NULL) {
+    if (vi_evicted_block.addr == 0) {
         /* current incoming block is from l1 */
         victim_index = (l1_evicted_block.addr >> l2_index_start) & ((1 << l2_cache.num_index_bits) - 1);
     }
@@ -621,7 +621,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
         }
 
         /* update l2 cache block with evicted l1/victim block info */
-        if (vi_evicted_block.addr == NULL) {
+        if (vi_evicted_block.addr == 0) {
             l2_cache.sets[victim_index]->blocks[l2_lru]->addr = l1_evicted_block.addr;
             l2_cache.sets[victim_index]->blocks[l2_lru]->tag = (l1_evicted_block.addr >> l2_tag_start) & ((1 << l2_cache.num_tag_bits) - 1);
             l2_cache.sets[victim_index]->blocks[l2_lru]->dirty = false;
@@ -647,7 +647,7 @@ void sim_access(char rw, uint64_t addr, sim_stats_t* stats) {
     }
     else {
         /* open spot in l2 cache, bring in l1/victim lru */
-        if (vi_evicted_block.addr == NULL) {
+        if (vi_evicted_block.addr == 0) {
             l2_cache.sets[victim_index]->blocks[open_block]->addr = l1_evicted_block.addr;
             l2_cache.sets[victim_index]->blocks[open_block]->tag = (l1_evicted_block.addr >> l2_tag_start) & ((1 << l2_cache.num_tag_bits) - 1);
             l2_cache.sets[victim_index]->blocks[open_block]->dirty = false;
