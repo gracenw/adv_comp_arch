@@ -155,6 +155,8 @@ void sim_setup(sim_config_t *config) {
         vi_cache.sets[0]->blocks.reserve(vi_cache.num_ways);
         vi_cache.sets[0]->lru_stack.reserve(vi_cache.num_ways);
     }
+
+    printf("Simular setup successful /n/n");
 }
 
 /* subroutine that simulates the cache one trace event at a time */
