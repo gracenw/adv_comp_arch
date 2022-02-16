@@ -1,7 +1,7 @@
 #include <math.h>
 #include <stdlib.h> 
 #include <vector>
-#include <stdio.h>
+#include <iostream>
 #include "cachesim.hpp"
 
 /* global cache variables */
@@ -160,7 +160,7 @@ void sim_setup(sim_config_t *config) {
         vi_cache.sets[0]->lru_stack.reserve(vi_cache.num_ways);
     }
 
-    printf("Simular setup successful /n/n");
+    std::cout << "Simular setup successful /n/n" << std::endl;
 }
 
 /* subroutine that simulates the cache one trace event at a time */
