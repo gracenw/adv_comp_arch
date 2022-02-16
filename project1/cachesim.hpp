@@ -113,7 +113,7 @@ struct block {
     bool valid, dirty;
 
     block(): tag(0), addr(0), valid(false), dirty(false) {}
-    block(uint64_t _tag, uint64_t _addr, bool _valid, bool _dirty): tag(_tag), addr(_addr), valid(_valid), dirty(_dirty) {}
+    // block(uint64_t _tag, uint64_t _addr, bool _valid, bool _dirty): tag(_tag), addr(_addr), valid(_valid), dirty(_dirty) {}
 };
 
 struct set {
