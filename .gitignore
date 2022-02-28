@@ -3,3 +3,6 @@
 **/*.d
 **/cachesim
 **/debug_outs
+**/ref_outs
+**/traces
+*.bat
