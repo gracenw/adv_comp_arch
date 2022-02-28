@@ -1,3 +1,3 @@
-# ece6100
+# ece6100 project repo
 
-class project for ece6100, spring 2022
+class projects for ece6100, spring 2022
