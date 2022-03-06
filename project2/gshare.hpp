@@ -7,24 +7,22 @@
 // Gshare predictor definition
 class gshare : public branch_predictor_base
 {
+    private:
+        // TODO: add your fields here
 
-private:
+    public:
+        // create optional helper functions here
 
-    // TODO: add your fields here
+        void init_predictor(branchsim_conf *sim_conf);
 
-public:
-    // create optional helper functions here
+        // Return the prediction
+        bool predict(branch *branch, branchsim_stats *sim_stats);
 
-    void init_predictor(branchsim_conf *sim_conf);
+        // Update the branch predictor state
+        void update_predictor(branch *branch);
 
-    // Return the prediction
-    bool predict(branch *branch, branchsim_stats *sim_stats);
-
-    // Update the branch predictor state
-    void update_predictor(branch *branch);
-
-    // Cleanup any allocated memory here
-    ~gshare();
+        // Cleanup any allocated memory here
+        ~gshare();
 };
 
 #endif

@@ -1,37 +1,46 @@
 #include "Counter.hpp"
-#include <cstdint>
-
-// ===================================================================
-// Documentation for these methods are in the header file, Counter.hpp
-// ===================================================================
 
 Counter::Counter(uint64_t width) {
-    // TODO: implement me
+    this->width = width;
+    this->max = pow(2, width) - 1;
+    this->val = pow(2, width) / 2;
+    this->weakly_taken = pow(2, width) / 2;
 }
 
 void Counter::update(bool taken) {
-    // TODO: implement me
+    if (taken)
+        if (this->val < this->max)
+            this->val ++;
+    else
+        if (this->val > 0)
+            this->val --;
 }
 
 uint64_t Counter::get() {
-    // TODO: implement me
-    return 0;
+    return this->val;
 }
 
 bool Counter::isTaken() {
-    // TODO: implement me
-    return false;
+    if (this->val >= this->weakly_taken)
+        return true;
+    else
+        return false;
 }
 
 void Counter::setCount(uint64_t count) {
-    // TODO: implement me
+    this->val = count;
 }
 
 bool Counter::isWeak() {
-    // TODO: implement me
-    return false;
+    if (this->val > 0 || this->val < this->max)
+        return true;
+    else
+        return false;
 }
 
 void Counter::reset(bool taken) {
-    // TODO: implement me
+    if (taken)
+        this->val = this->weakly_taken;
+    else
+        this->val = this->weakly_taken - 1;
 }

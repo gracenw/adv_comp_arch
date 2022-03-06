@@ -7,7 +7,7 @@ OFILES = $(patsubst %.c,%.o,$(wildcard *.c)) $(patsubst %.cpp,%.o,$(wildcard *.c
 DFILES = $(patsubst %.c,%.d,$(wildcard *.c)) $(patsubst %.cpp,%.d,$(wildcard *.cpp))
 HFILES = $(wildcard *.h *.hpp)
 PROG = branchsim
-TARBALL = $(if $(USER),$(USER),gburdell3)-proj1.tar.gz
+TARBALL = $(if $(USER),$(USER),gburdell3)-proj2.tar.gz
 
 ifdef PROFILE
 FAST=1
