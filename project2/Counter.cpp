@@ -8,12 +8,14 @@ Counter::Counter(uint64_t width) {
 }
 
 void Counter::update(bool taken) {
-    if (taken)
+    if (taken) {
         if (this->val < this->max)
             this->val ++;
-    else
+    }
+    else {
         if (this->val > 0)
             this->val --;
+    }
 }
 
 uint64_t Counter::get() {

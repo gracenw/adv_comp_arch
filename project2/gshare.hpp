@@ -8,10 +8,17 @@
 class gshare : public branch_predictor_base
 {
     private:
-        // TODO: add your fields here
+        int ghr_width, num_counters, hash_func;
+        uint64_t ghr;
+        Counter ** counters;
+        uint64_t * tags;
 
     public:
-        // create optional helper functions here
+        void shift_ghr(int new_val);
+
+        uint64_t hash_0(uint64_t pc);
+        uint64_t hash_1(uint64_t pc);
+        uint64_t hash_2(uint64_t pc);
 
         void init_predictor(branchsim_conf *sim_conf);
 
