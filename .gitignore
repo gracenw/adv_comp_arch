@@ -6,4 +6,5 @@
 **/ref_outs
 **/traces
 **/student_outs
+**/branchsim
 *.bat

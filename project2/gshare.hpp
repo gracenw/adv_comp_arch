@@ -4,7 +4,7 @@
 #include "branchsim.hpp"
 #include "Counter.hpp"
 
-// Gshare predictor definition
+/* GSHARE class predictor definition */
 class gshare : public branch_predictor_base
 {
     private:
@@ -14,21 +14,24 @@ class gshare : public branch_predictor_base
         uint64_t * tags;
 
     public:
+        /* Shifts in new value to the GHR */
         void shift_ghr(int new_val);
 
+        /* Hash functions for indexing into Smith counter table */
         uint64_t hash_0(uint64_t pc);
         uint64_t hash_1(uint64_t pc);
         uint64_t hash_2(uint64_t pc);
-
+        
+        /* Initializes GSHARE predictor */
         void init_predictor(branchsim_conf *sim_conf);
 
-        // Return the prediction
+        /* Returns predicted value for the given instruction */
         bool predict(branch *branch, branchsim_stats *sim_stats);
 
-        // Update the branch predictor state
+        /* Updates GSHARE branch predictor state */
         void update_predictor(branch *branch);
 
-        // Cleanup any allocated memory here
+        /* Frees any allocated memory -- includes both new and malloc */
         ~gshare();
 };
 

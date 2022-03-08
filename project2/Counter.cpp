@@ -1,40 +1,47 @@
 #include "Counter.hpp"
 
-Counter::Counter(uint64_t width) {
-    this->width = width;
-    this->max = pow(2, width) - 1;
-    this->val = pow(2, width) / 2;
-    this->weakly_taken = pow(2, width) / 2;
+Counter::Counter(uint64_t _width) {
+    width = _width;
+    max = pow(2, width) - 1;
+    val = pow(2, width) / 2;
+    weakly_taken = pow(2, width) / 2;
+}
+
+Counter::Counter(uint64_t _width, int _val) {
+    width = _width;
+    max = pow(2, width) - 1;
+    val = _val;
+    weakly_taken = pow(2, width) / 2;
 }
 
 void Counter::update(bool taken) {
     if (taken) {
-        if (this->val < this->max)
-            this->val ++;
+        if (val < max)
+            val ++;
     }
     else {
-        if (this->val > 0)
-            this->val --;
+        if (val > 0)
+            val --;
     }
 }
 
 uint64_t Counter::get() {
-    return this->val;
+    return val;
 }
 
 bool Counter::isTaken() {
-    if (this->val >= this->weakly_taken)
+    if (val >= weakly_taken)
         return true;
     else
         return false;
 }
 
 void Counter::setCount(uint64_t count) {
-    this->val = count;
+    val = count;
 }
 
 bool Counter::isWeak() {
-    if (this->val > 0 || this->val < this->max)
+    if (val == weakly_taken || val == (weakly_taken - 1))
         return true;
     else
         return false;
@@ -42,7 +49,7 @@ bool Counter::isWeak() {
 
 void Counter::reset(bool taken) {
     if (taken)
-        this->val = this->weakly_taken;
+        val = weakly_taken;
     else
-        this->val = this->weakly_taken - 1;
+        val = weakly_taken - 1;
 }
