@@ -8,7 +8,7 @@
 class gshare : public branch_predictor_base
 {
     private:
-        int ghr_width, num_counters, hash_func;
+        int g, p, t_size;
         uint64_t ghr;
         Counter ** counters;
         uint64_t * tags;
@@ -31,7 +31,7 @@ class gshare : public branch_predictor_base
         /* Updates GSHARE branch predictor state */
         void update_predictor(branch *branch);
 
-        /* Frees any allocated memory -- includes both new and malloc */
+        /* Frees any allocated memory */
         ~gshare();
 };
 

@@ -7,4 +7,5 @@
 **/traces
 **/student_outs
 **/branchsim
+**/*.txt
 *.bat

@@ -5,27 +5,16 @@
 #include "TAGE_GHR.hpp"
 #include "Counter.hpp"
 
-/* Tagged Table for TAGE-S class definition */
-class TaggedTable {
-    
-    public:
-        int subscript, num_entries, tag_size, history_length;
-        Counter ** predict_counters;
-        Counter ** useful_counters;
-        uint64_t * partial_tags;
-
-        TaggedTable(int i, int e, int t, int l);
-        ~TaggedTable();
-};
-
 /* TAGE-S class predictor definition */
 class tage : public branch_predictor_base {
 
     private:
-        int h, t, e, p;
+        int h, t, e, p, t0_size, tx_size;
         TAGE_GHR ghr;
         Counter ** table_zero;
-        TaggedTable ** tagged_tables;
+        Counter *** tagged_predictors;
+        Counter *** tagged_useful;
+        uint64_t ** partial_tags;
 
     public:
         /* Returns the length of the history for a given table */
@@ -49,7 +38,7 @@ class tage : public branch_predictor_base {
         /* Updates TAGE-S branch predictor state */
         void update_predictor(branch *branch);
 
-        /* Frees any allocated memory -- includes both new and malloc */
+        /* Frees any allocated memory */
         ~tage();
 };
 
