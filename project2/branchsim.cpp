@@ -303,7 +303,7 @@ void tage::update_predictor(branch *branch) {
     if (new_prediction != branch->is_taken && longest_match < p) {
         bool new_allocated = false;
 
-        for (int i = p - 1; i >= longest_match; i --) {
+        for (int i = longest_match; i < p; i ++) {
             uint64_t index = hash_tagged(branch->ip, i + 1);
             if (tagged_useful[i][index]->get() == 0) {
                 new_allocated = true;
