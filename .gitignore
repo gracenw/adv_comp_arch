@@ -1,11 +1,11 @@
 .vscode
+*.bat
 **/*.o
 **/*.d
-**/cachesim
 **/debug_outs
 **/ref_outs
 **/traces
 **/student_outs
+**/*.out
+**/cachesim
 **/branchsim
-**/*.txt
-*.bat

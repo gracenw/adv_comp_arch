@@ -3,7 +3,7 @@ set -e
 
 student_stat_dir=student_outs
 benchmarks=( gcc mcf perlbench x264 )
-configs=( gshare_1k_hash0 gshare_8k_hash1 gshare_64k_hash2 gshare_64k_hash2_deepN tage_1k_p3 tage_8k_p4 tage_32k_p7 tage_64k_p10 )
+configs=( gshare_1k_hash0 gshare_8k_hash1 gshare_64k_hash2 gshare_64k_hash2_deepN tage_1k_p3 tage_8k_p4 tage_8k_p7 tage_32k_p7 tage_64k_p10 )
 
 flags_gshare_1k_hash0='-O 1 -S 13 -P 0'
 flags_gshare_8k_hash1='-O 1 -S 16 -P 1'
@@ -11,6 +11,7 @@ flags_gshare_64k_hash2='-O 1 -S 19 -P 2'
 flags_gshare_64k_hash2_deepN='-O 1 -S 19 -P 2 -N 50'
 flags_tage_1k_p3='-O 2 -S 13 -P 3'
 flags_tage_8k_p4='-O 2 -S 16 -P 4'
+flags_tage_8k_p7='-O 2 -S 16 -P 7'
 flags_tage_32k_p7='-O 2 -S 18 -P 7'
 flags_tage_64k_p10='-O 2 -S 19 -P 10'
 
