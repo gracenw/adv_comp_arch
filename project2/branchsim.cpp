@@ -22,6 +22,7 @@ branch_predictor_base::~branch_predictor_base() {}
 /* ----------------------------------------- GSHARE BRANCH PREDICTOR -------------------------------------------- */
 
 void gshare::shift_ghr(int new_val) {
+    /* shift in new ghr value, zero out anything beyond the length of the ghr */
     ghr <<= 1;
     ghr += new_val;
     ghr <<= (64 - g);
@@ -29,6 +30,7 @@ void gshare::shift_ghr(int new_val) {
 }
 
 uint64_t gshare::hash_0(uint64_t pc) {
+    /* XOR ghr and pc[2 + g - 1:2] */
     bitset<64> pc_b(pc);
     bitset<64> ghr_b(ghr);
     bitset<64> hash_b(0);
@@ -42,6 +44,7 @@ uint64_t gshare::hash_0(uint64_t pc) {
 }
 
 uint64_t gshare::hash_1(uint64_t pc) {
+    /* XOR ghr and pc[g - 1:0] */
     bitset<64> pc_b(pc);
     bitset<64> ghr_b(ghr);
     bitset<64> hash_b(0);
@@ -54,6 +57,7 @@ uint64_t gshare::hash_1(uint64_t pc) {
 }
 
 uint64_t gshare::hash_2(uint64_t pc) {
+    /* add ghr and pc[2 + g - 1: 2] */
     pc >>= 2;
     uint64_t hash = pc + ghr;
 
@@ -66,11 +70,13 @@ uint64_t gshare::hash_2(uint64_t pc) {
 }
 
 void gshare::init_predictor(branchsim_conf *sim_conf) {
+    /* set gshare parameters */
     g = log2(pow(2, sim_conf->S) / 2);
     t_size = pow(2, g);
     p = sim_conf->P;
     ghr = 0;
 
+    /* initialize prediction counters and tags */
     counters = new Counter*[t_size];
     tags = new uint64_t[t_size];
     for (int i = 0; i < t_size; i ++) {
@@ -86,6 +92,7 @@ void gshare::init_predictor(branchsim_conf *sim_conf) {
 }   
 
 bool gshare::predict(branch *branch, branchsim_stats *sim_stats) {
+    /* hash instruction pointer depending on selected hash function */
     uint64_t index;
     if (p == 0) 
         index = hash_0(branch->ip);
@@ -93,9 +100,11 @@ bool gshare::predict(branch *branch, branchsim_stats *sim_stats) {
         index = hash_1(branch->ip);
     else 
         index = hash_2(branch->ip);
-
+    
+    /* see if the indexed counter is taken or not */
     bool taken = counters[index]->isTaken();
 
+    /* increment tag conflicts if the tag of the counter is not equal to the current tag */
     if (tags[index] != branch->ip)
         sim_stats->num_tag_conflicts ++;
 
@@ -115,6 +124,7 @@ bool gshare::predict(branch *branch, branchsim_stats *sim_stats) {
 }
 
 void gshare::update_predictor(branch *branch) {
+    /* hash instruction pointer depending on selected hash function */
     uint64_t index;
     if (p == 0) 
         index = hash_0(branch->ip);
@@ -123,8 +133,13 @@ void gshare::update_predictor(branch *branch) {
     else 
         index = hash_2(branch->ip);
     
+    /* update indexed counter based on actual branch outcome */
     counters[index]->update(branch->is_taken);
+
+    /* set indexed tag to the current instruction pointer */
     tags[index] = branch->ip;
+
+    /* shift in branch outcome to ghr */
     shift_ghr(branch->is_taken);
 
     #ifdef DEBUG
@@ -133,6 +148,7 @@ void gshare::update_predictor(branch *branch) {
 }
 
 gshare::~gshare() {
+    /* free counters and tags */
     for (int i = 0; i < t_size; i++)
         delete[] counters[i];
     delete[] counters;
@@ -142,6 +158,7 @@ gshare::~gshare() {
 /* ------------------------------------------ TAGE-S BRANCH PREDICTOR ------------------------------------------- */
 
 int tage::history_length(int x) {
+    /* recursively solve for the length of the ghr for a given table x */
     if (x > 1)
         return floor(1.75 * history_length(x - 1) + 0.5);
     else
@@ -149,6 +166,7 @@ int tage::history_length(int x) {
 }
 
 uint64_t tage::hash_bimodal(uint64_t pc) {
+    /* return pc[2 + h - 1:2] to index into table zero */
     bitset<64> pc_b(pc);
     bitset<64> hash_b(0);
 
@@ -161,6 +179,7 @@ uint64_t tage::hash_bimodal(uint64_t pc) {
 }
 
 uint64_t tage::hash_tagged(uint64_t pc, int i) {
+    /* XOR pc[2 + e - 1:2] and compressed history calculated with table history length */
     bitset<64> pc_b(pc);
     bitset<64> ghr_b(ghr.getCompressedHistory(history_length(i), e));
     bitset<64> hash_b(0);
@@ -174,6 +193,7 @@ uint64_t tage::hash_tagged(uint64_t pc, int i) {
 }
 
 uint64_t tage::get_partial(uint64_t pc) {
+    /* XOR pc[2 + e + t − 1:2 + e] and ghr[t - 1: 0] */
     bitset<64> pc_b(pc);
     bitset<64> ghr_b(ghr.getHistory());
     bitset<64> hash_b(0);
@@ -187,19 +207,25 @@ uint64_t tage::get_partial(uint64_t pc) {
 }
 
 void tage::init_predictor(branchsim_conf *sim_conf) {
+    /* set tage parameters */
     h = sim_conf->S - 4;
     p = sim_conf->P;
     t = p + 4;
     e = floor(log2(((pow(2, sim_conf->S) - (2 * pow(2, h))) / (t + 3 + 2)) / p));
+
+    /* initialize TAGE-GHR object */
     ghr = TAGE_GHR(history_length(p));
 
+    /* calculate sizes of table zero and tagged tables */
     t0_size = pow(2, h);
     tx_size = pow(2, e);
 
+    /* initialize table zero counters */
     table_zero = new Counter*[t0_size];
     for (int i = 0; i < t0_size; i ++)
         table_zero[i] = new Counter(2);
 
+    /* intialize tagged table predictors, useful counters, and partial tags */
     tagged_predictors = new Counter**[p];
     tagged_useful = new Counter**[p];
     partial_tags = new uint64_t*[p];
@@ -226,6 +252,7 @@ bool tage::predict(branch *branch, branchsim_stats *sim_stats) {
     int longest_match = -1;
     uint64_t partial = get_partial(branch->ip);
 
+    /* search tagged tables for a partial tag, excluding 'new' entries */
     for (int i = p - 1; i >= 0; i --) {
         uint64_t index = hash_tagged(branch->ip, i + 1);
         if (partial_tags[i][index] == partial) {
@@ -245,6 +272,7 @@ bool tage::predict(branch *branch, branchsim_stats *sim_stats) {
         }
     }
 
+    /* if no match, search table zero */
     if (longest_match == -1) {
         sim_stats->num_tag_conflicts ++;
         uint64_t index = hash_bimodal(branch->ip);
@@ -267,11 +295,13 @@ void tage::update_predictor(branch *branch) {
     int longest_match = -1;
     uint64_t partial = get_partial(branch->ip);
 
+    /* search for longest match, including any 'new' entries */
     for (int i = p - 1; i >= 0; i --) {
         uint64_t index = hash_tagged(branch->ip, i + 1);
         if (partial_tags[i][index] == partial) {
             longest_match = i + 1;
-
+            
+            /* update useful counters and predictors */
             if (tagged_predictors[i][index]->isTaken() == branch->is_taken) 
                 tagged_useful[i][index]->update(true);
             else
@@ -288,6 +318,7 @@ void tage::update_predictor(branch *branch) {
         }
     }
 
+    /* no longest match found, update table zero instead */
     if (longest_match == -1) {
         uint64_t index = hash_bimodal(branch->ip);
         longest_match = 0;
@@ -300,6 +331,7 @@ void tage::update_predictor(branch *branch) {
         #endif
     }
 
+    /* search for allocatable entries, if none found decrement T_x+ useful counters */
     if (new_prediction != branch->is_taken && longest_match < p) {
         bool new_allocated = false;
 
@@ -334,7 +366,8 @@ void tage::update_predictor(branch *branch) {
         if (longest_match == p)
             printf("\tNo available entry for allocation, No useful counters to decrement because T%d does not exist\n", longest_match + 1);
     #endif
-
+    
+    /* update ghr with branch outcome */
     ghr.shiftLeft(branch->is_taken);
 
     #ifdef DEBUG
@@ -343,10 +376,12 @@ void tage::update_predictor(branch *branch) {
 }
 
 tage::~tage() {
+    /* free t_0 table */
     for (int i = 0; i < t0_size; i++)
         delete[] table_zero[i];
     delete[] table_zero;
 
+    /* free tagged tables, including their tags, predictors, and useful counters */
     for (int i = 0; i < p; i ++) {
         for (int j = 0; j < tx_size; j ++) {
             delete[] tagged_predictors[i][j];
