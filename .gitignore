@@ -7,5 +7,7 @@
 **/traces
 **/student_outs
 **/*.out
+**/*.pdf
+**/*.gz
 **/cachesim
 **/branchsim
