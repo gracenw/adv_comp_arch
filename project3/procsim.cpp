@@ -1,12 +1,18 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <cmath>
+#include <list>
+#include <iterator>
 
 #include "procsim.hpp"
 
-// The helper functions in this #ifdef are optional and included here for your
-// convenience so you can spend more time writing your simulator logic and less
-// time trying to match debug trace formatting! (If you choose to use them)
+#define ALU 0
+#define MUL 1
+#define MEM 2
+
+using namespace std;
+
 #ifdef DEBUG
 static void print_operand(int8_t rx) {
     if (rx < 0) {
@@ -81,79 +87,363 @@ static void print_rob(void) {
 }
 #endif
 
-//
-// TODO: Define any useful data structures and functions here
-//
+/* -------------------------- CLASSES --------------------------- */
 
-// Optional helper function which resets all state on an interrupt, including
-// the dispatch queue, scheduling queue, the ROB, etc. Note the dcache should
-// NOT be flushed here! The messy register file needs to have all register set
-// to ready (and in a real system, we would copy over the values from the
-// architectural register file; however, this is a simulation with no values to
-// copy!)
-static void flush_pipeline(void) {
-    // TODO: fill me in
-}
+/* instruction */
+class instruction {
+    public:
+        uint64_t pc, ls_addr;
+        opcode_t opcode;
+        int8_t dest, src1, src2;
+        bool intrpt;
 
-// Optional helper function which pops instructions from the head of the ROB
-// with a maximum of retire_width instructions retired. (In a real system, the
-// destination register value from the ROB would be written to the
-// architectural register file, but we have no register values in this
-// simulation.) This function returns the number of instructions retired.
-// Immediately after retiring an interrupt, this function will set
-// *retired_interrupt_out = true and return immediately. Note that in this
-// case, the interrupt must be counted as one of the retired instructions.
-static uint64_t stage_state_update(procsim_stats_t *stats,
-                                   bool *retired_interrupt_out) {
-    // TODO: fill me in
-    *retired_interrupt_out = false;
-    return 0;
-}
+        instruction(uint64_t _pc, uint64_t _ls_addr, opcode_t _opcode, int8_t _dest, int8_t _src1, int8_t _src2, bool _intrpt) {
+            pc = _pc;
+            ls_addr = _ls_addr;
+            opcode = _opcode;
+            dest = _dest;
+            src1 = _src1;
+            src2 = _src2;
+            intrpt = _intrpt;
+        }
+};
 
-// Optional helper function which is responsible for moving instructions
-// through pipelined Function Units and then when instructions complete (that
-// is, when instructions are in the final pipeline stage of an FU and aren't
-// stalled there), setting the ready bits in the messy register file and
-// scheduling queue. This function should remove an instruction from the
-// scheduling queue when it has completed.
-static void stage_exec(procsim_stats_t *stats) {
-    // TODO: fill me in
-}
+/* reservation station */
+class reserv_stat {
+    public:
+        int8_t dest, src1, src2;
+        uint64_t tagd, tag1, tag2, ls_addr;
+        bool ready1, ready2;
+        int8_t fu;
 
-// Optional helper function which is responsible for looking through the
-// scheduling queue and firing instructions. Note that when multiple
-// instructions are ready to fire in a given cycle, they must be fired in
-// program order. Also, load and store instructions must be fired according to
-// the modified TSO ordering described in the assignment PDF. Finally,
-// instructions stay in their reservation station in the scheduling queue until
-// they complete (at which point stage_exec() above should free their RS).
-static void stage_schedule(procsim_stats_t *stats) {
-    // TODO: fill me in
-}
+        reserv_stat(int8_t _dest, int8_t _src1, int8_t _src2, uint64_t _ls_addr, int8_t _fu) {
+            dest = _dest;
+            src1 = _src1;
+            src2 = _src2;
+            tagd = 0;
+            tag1 = 0;
+            tag2 = 0;
+            ls_addr = _ls_addr;
+            ready1 = false;
+            ready2 = false;
+            fu = _fu;
+        }
+};
 
-// Optional helper function which looks through the dispatch queue, decodes
-// instructions, and inserts them into the scheduling queue. Dispatch should
-// not add an instruction to the scheduling queue unless there is space for it
-// in the scheduling queue and the ROB; effectively, dispatch allocates
-// reservation stations and ROB space for each instruction dispatched and
-// stalls if there is either is unavailable. Note the scheduling queue and ROB
-// have configurable sizes. The PDF has details.
-static void stage_dispatch(procsim_stats_t *stats) {
-    // TODO: fill me in
-}
+/* result bus */
+class result_bus {
+    public:
+        uint64_t tag;
+        int8_t reg;
 
-// Optional helper function which fetches instructions from the instruction
-// cache using the provided procsim_driver_read_inst() function implemented
-// in the driver and appends them to the dispatch queue. To simplify the
-// project, the dispatch queue is infinite in size.
+        result_bus() {
+            tag = 0;
+            reg = -1;
+        }
+
+        void flush() {
+            tag = 0;
+            reg = -1;
+        }
+};
+
+/* register */
+class reg_entry {
+    public:
+        uint64_t tag;
+        bool ready;
+
+        reg_entry() {
+            tag = 0;
+            ready = true;
+        }
+
+        void flush(uint64_t _tag) {
+            tag = _tag;
+            ready = true;
+        }
+};
+
+/* rob entry */
+class rob_entry {
+    public:
+        uint64_t tag, pc;
+        bool ready, excpt;
+        int8_t reg;
+
+        rob_entry(uint64_t _tag, uint64_t _pc, uint64_t, bool _ready, bool _excpt, int8_t _reg) {
+            tag = _tag;
+            pc = _pc;
+            ready = _ready;
+            excpt = _excpt;
+            reg = _reg;
+        }
+};
+
+/* cache entry */
+class cache_entry {
+    public:
+        uint64_t tag;
+        bool valid;
+
+        cache_entry() {
+            tag = 0;
+            valid = false;
+        }
+};
+
+/* functional unit */
+class funct_unit {
+    public:
+        uint8_t type;
+        opcode_t opcode;
+        uint64_t pipeline[MUL_STAGES]; /* only use first stage for mul and mem */
+        uint64_t stalls; /* only used with loads */
+
+        funct_unit(uint64_t _type) {
+            type = _type;
+            opcode = (opcode_t) NULL;
+            for (int i = 0; i < MUL_STAGES; i ++) {
+                pipeline[i] = 0;
+            }
+        }
+
+        void flush() {
+            opcode = (opcode_t) NULL;
+            for (int i = 0; i < MUL_STAGES; i ++) {
+                pipeline[i] = 0;
+            }
+            stalls = 0;
+        }
+};
+
+/* --------------------------- LISTS ---------------------------- */
+
+/* infinite dispatch queue */
+list<instruction*> dispq;
+
+/* scheduling queue */
+list<reserv_stat*> schedq;
+
+/* reorder buffer */
+list<rob_entry*> rob;
+
+/* result buses */
+result_bus ** rbuses;
+
+/* scoreboard */
+funct_unit ** scoreb;
+
+/* data cache */
+cache_entry ** dcache;
+
+/* messy register file */
+reg_entry ** messy;
+
+/* ---------------------- USEFUL VARIABLES ---------------------- */
+
+uint64_t NUM_ALU, NUM_MUL, NUM_MEM, NUM_FUS, INDEX_SIZE, TAG_SIZE, CACHE_SETS, SCHED_SIZE, ROB_SIZE, MAX_FETCH, MAX_RETIRE;
+uint64_t reserved = 0;
+uint64_t curr_tag = 0;
+
+/* ---------------------- HELPER FUNCTIONS ---------------------- */
+
+/* fetches instructions from the icache and appends them to the dispatch queue */
 static void stage_fetch(procsim_stats_t *stats) {
-    // TODO: fill me in
+    for (int i = 0; i < MAX_FETCH; i ++) {
+        /* fetch instruction using driver */
+        const inst_t * instr = procsim_driver_read_inst();
+
+        /* make instruction object */
+        instruction * temp = new instruction(instr->pc, instr->load_store_addr, instr->opcode, instr->dest, instr->src1, instr->src2, instr->interrupt);
+
+        /* add the back of dispatch queue */
+        dispq.push_back(temp);
+
+        /* delete temporary object */
+        delete temp;
+    }
 }
 
-// Use this function to initialize all your data structures, simulator
-// state, and statistics.
+/* looks through dispatch queue, decodes instructions, and inserts into the scheduling queue */
+static void stage_dispatch(procsim_stats_t *stats) {
+    /*
+    Dispatch will use the tags and ready bits from the messy register file to set up the reservation station
+    in the scheduling queue. Dispatch also allocates a new tag for each instruction regardless of whether
+    it has a destination register. This is done to maintain program order in the ROB and across the
+    processor where necessary. The dispatch stage will allocate room in the ROB for the instruction as it places it into a
+    reservation station.
+    */
+
+    /* make sure there is space in the scheduling queue and rob */
+    if (schedq.size() < SCHED_SIZE && (rob.size() + reserved) < ROB_SIZE) {
+        instruction * temp = dispq.front();
+        dispq.pop_front();
+        reserved ++;
+    }
+}
+
+/* looks through scheduling queue and fires instructions */
+static void stage_schedule(procsim_stats_t *stats) {
+    /*
+        If multiple instructions can be fired at the same time, they
+        are fired in program order (but still within the same cycle). This means that if 2 instructions are
+        both ready for a single function unit, the instruction that comes first in program order would fire
+        first. Instructions stay in the SQ until they retire.
+        Load/store can fire only if no Load or Store instruction in the scheduling queue that both has an
+        index conflict in the cache and comes earlier in program order (tag order)
+    */
+
+}
+
+/* moves instructions through pipelined FUs; removes instruction from scehd queue when it has completed */
+static void stage_exec(procsim_stats_t *stats) {
+    /* iterate through the function units - first is alu */
+    for (int i = 0; i < NUM_ALU; i ++) {
+        
+    }
+
+    /* mul function units */
+    for (int i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
+        
+    }
+
+    /* mem function units */
+    for (int i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
+        if (scoreb[i]->opcode == OPCODE_LOAD) {
+            uint64_t addr = scoreb[i]->pipeline[0];
+            uint64_t tag = (addr >> (INDEX_SIZE + DCACHE_B)) & ((1 << TAG_SIZE) - 1);
+            uint64_t index = (addr >> DCACHE_B) & ((1 << INDEX_SIZE) - 1);
+
+            if (scoreb[i]->stalls > 0) {
+                if (scoreb[i]->stalls == L2_LATENCY_CYCLES) {
+                    /* set fu to not busy */
+                    scoreb[i]->stalls = 0;
+                    scoreb[i]->pipeline[0] = 0;
+
+                    /* bring L2 data to cache */
+                    dcache[index]->tag = tag;
+                    dcache[index]->valid = true;
+
+                    /* remove instruction from sched q and put in rob */
+
+
+                    /* update ready bits in messy and schedq */
+
+                }
+                else {
+                    /* still waiting on L2 */
+                    scoreb[i]->stalls ++;
+                }
+            }
+            else {
+                if (tag != dcache[index]->tag || !dcache[index]->valid) {
+                    /* cache miss */
+                    scoreb[i]->stalls ++; 
+                }
+            }
+        }
+    }
+
+    // when instructions are in the final pipeline stage of an FU and aren't stalled, set ready bits in the messy & schedq
+    
+    
+    
+}
+
+/* pops instructions from head of ROB and returns number of instructions retired */
+static uint64_t stage_state_update(procsim_stats_t *stats, bool *retired_interrupt_out) {
+    uint64_t num_retired = 0;
+
+    /* iterate through rob for length of retire width */
+    for (int i = 0; i < MAX_RETIRE; i ++) {
+        if (rob.size() > 0) {
+            rob_entry * front = rob.front();
+            rob.pop_front();
+
+            /* interrupt found, set retired interrupt flag to true and return */
+            if (front->excpt) {
+                *retired_interrupt_out = true;
+                num_retired ++;
+                return num_retired;
+            }
+        }
+    }
+
+    /* no interrupts, retired max width */
+    *retired_interrupt_out = false;
+    return num_retired;
+}
+
+/* resets all states on an interrupt, sets all messy regs to ready */
+static void flush_pipeline(void) {
+    /* erase all entries in dispatch queue, scheduling queue, and rob */
+    dispq.clear();
+    schedq.clear();
+    rob.clear();
+
+    /* erase reserved slots */
+    reserved = 0;
+
+    /* flush and reset all function units and result buses */
+    for (int i = 0; i < NUM_FUS; i ++) {
+        /* dcache is left as is - but pending loads not fulfilled */
+        scoreb[i]->flush();
+        rbuses[i]->flush();
+    }
+
+    /* set all messy regs to ready */
+    for (int i = 0; i < NUM_REGS; i ++) {
+        messy[i]->flush(curr_tag); // FIX ME??
+    }
+}
+
+/* ----------------------- SIM FUNCTIONS ------------------------ */
+
+/* initialize data structures, simulator state, and statistics */
 void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
-    // TODO: fill me in
+    /* initalize useful simulator variables */
+    NUM_ALU    = sim_conf->num_alu_fus;
+    NUM_MUL    = sim_conf->num_mul_fus;
+    NUM_MEM    = sim_conf->num_lsu_fus;
+    NUM_FUS    = NUM_ALU + NUM_MUL + NUM_MEM;
+    INDEX_SIZE = sim_conf->dcache_c - DCACHE_B;
+    TAG_SIZE   = 64 - (INDEX_SIZE + DCACHE_B);
+    CACHE_SETS = pow(2, sim_conf->dcache_c) / pow(2, DCACHE_B);
+    SCHED_SIZE = NUM_FUS * sim_conf->num_schedq_entries_per_fu;
+    ROB_SIZE   = sim_conf->num_rob_entries;
+    MAX_FETCH  = sim_conf->fetch_width;
+    MAX_RETIRE = sim_conf->retire_width;
+
+    /* initialize result buses to empty */
+    rbuses = new result_bus*[NUM_FUS];
+    for (int i = 0; i < NUM_FUS; i ++) {
+        rbuses[i] = new result_bus();
+    }
+
+    /* initialize scoreboard to all fus not busy */
+    scoreb = new funct_unit*[NUM_FUS];
+    for (int i = 0; i < NUM_ALU; i ++) {
+        scoreb[i] = new funct_unit(ALU);
+    }
+    for (int i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
+        scoreb[i] = new funct_unit(MUL);
+    }
+    for (int i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
+        scoreb[i] = new funct_unit(MEM);
+    }
+
+    /* set all dcache entries to empty and invalid */
+    dcache = new cache_entry*[CACHE_SETS];
+    for (int i = 0; i < CACHE_SETS; i ++) {
+        dcache[i] = new cache_entry();
+    }
+
+    /* set all registers in messy to ready and empty */
+    messy = new reg_entry*[NUM_REGS];
+    for (int i = 0; i < NUM_REGS; i ++) {
+        messy[i] = new reg_entry();
+    }
 
     #ifdef DEBUG
     printf("\nScheduling queue capacity: %lu instructions\n", 0UL); // TODO: fix me
@@ -162,20 +452,14 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     printf("\n");
     #endif
 }
-
-// To avoid confusion, we have provided this function for you. Notice that this
-// calls the stage functions above in reverse order! This is intentional and
-// allows you to avoid having to manage pipeline registers between stages by
-// hand. This function returns the number of instructions retired, and also
-// returns if an interrupt was retired by assigning true or false to
-// *retired_interrupt_out, an output parameter.
-uint64_t procsim_do_cycle(procsim_stats_t *stats,
-                          bool *retired_interrupt_out) {
+ 
+/* calls the stage functions above in reverse order */
+uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
     #ifdef DEBUG
     printf("================================ Begin cycle %" PRIu64 " ================================\n", stats->cycles);
     #endif
 
-    // stage_state_update() should set *retired_interrupt_out for us
+    /* retired_interrupt_out is set by stage_state_update() */
     uint64_t retired_this_cycle = stage_state_update(stats, retired_interrupt_out);
 
     if (*retired_interrupt_out) {
@@ -183,8 +467,7 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
         printf("%" PRIu64 " instructions retired. Retired interrupt, so flushing pipeline!\n", retired_this_cycle);
         #endif
 
-        // After we retire an interrupt, flush the pipeline immediately and
-        // then pick up where we left off in the next cycle.
+        /* after retiring an interrupt, flush pipeline immediately and pick up where sim left off in the next cycle */
         stats->interrupts++;
         flush_pipeline();
     } else {
@@ -192,8 +475,7 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
         printf("%" PRIu64 " instructions retired. Did not retire interrupt, so proceeding with other pipeline stages.\n", retired_this_cycle);
         #endif
 
-        // If we didn't retire an interupt, then continue simulating the other
-        // pipeline stages
+        /* if interrupt was not retired, continue simulating the other pipeline stages */
         stage_exec(stats);
         stage_schedule(stats);
         stage_dispatch(stats);
@@ -211,16 +493,31 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats,
     printf("================================ End cycle %" PRIu64 " ================================\n", stats->cycles);
     #endif
 
-    // TODO: Increment max_usages and avg_usages in stats here!
+    /* increment max_usages and avg_usages in stats TODO */
     stats->cycles++;
 
-    // Return the number of instructions we retired this cycle (including the
-    // interrupt we retired, if there was one!)
+    /* return the number of instructions retired this cycle (including the interrupt if there was one) */
     return retired_this_cycle;
 }
 
-// Use this function to free any memory allocated for your simulator and to
-// calculate some final statistics.
+/* free allocated memory and calculate some final statistics */
 void procsim_finish(procsim_stats_t *stats) {
-    // TODO: fill me in
+    /* free allocated memory */
+    for (int i = 0; i < NUM_FUS; i ++) {
+        delete [] rbuses[i];
+        delete [] scoreb[i];
+    }
+    for (int i = 0; i < CACHE_SETS; i ++) {
+        delete [] dcache[i];
+    }
+    for (int i = 0; i < NUM_REGS; i ++) {
+        delete [] messy[i];
+    }
+    delete [] rbuses;
+    delete [] scoreb;
+    delete [] dcache;
+    delete [] messy;
+
+    /* calculate final statistics */
+
 }
