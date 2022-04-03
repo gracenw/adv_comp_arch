@@ -11,3 +11,4 @@
 **/*.gz
 **/cachesim
 **/branchsim
+**/procsim

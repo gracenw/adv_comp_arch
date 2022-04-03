@@ -13,79 +13,10 @@
 
 using namespace std;
 
-#ifdef DEBUG
-static void print_operand(int8_t rx) {
-    if (rx < 0) {
-        printf("(none)");
-    } else {
-        printf("R%" PRId8, rx);
-    }
-}
+/* ---------------------- USEFUL VARIABLES ---------------------- */
 
-// Useful in the fetch and dispatch stages
-static void print_instruction(const inst_t *inst) {
-    static const char *opcode_names[] = {NULL, NULL, "ADD", "MUL", "LOAD", "STORE", "BRANCH"};
-
-    printf("opcode=%s, dest=", opcode_names[inst->opcode]);
-    print_operand(inst->dest);
-    printf(", src1=");
-    print_operand(inst->src1);
-    printf(", src2=");
-    print_operand(inst->src2);
-}
-
-static void print_messy_rf(void) {
-    for (uint64_t regno = 0; regno < NUM_REGS; regno++) {
-        if (regno == 0) {
-            printf("    R%" PRIu64 "={tag: %" PRIu64 ", ready: %d}", regno, 0UL, 0); // TODO: fix me
-        } else if (!(regno & 0x3)) {
-            printf("\n    R%" PRIu64 "={tag: %" PRIu64 ", ready: %d}", regno, 0UL, 0); // TODO: fix me
-        } else {
-            printf(", R%" PRIu64 "={tag: %" PRIu64 ", ready: %d}", regno, 0UL, 0); // TODO: fix me
-        }
-    }
-    printf("\n");
-}
-
-static void print_schedq(void) {
-    size_t printed_idx = 0;
-    for (/* ??? */; /* ??? */ false; /* ??? */) { // TODO: fix me
-        if (printed_idx == 0) {
-            printf("    {fired: %d, tag: %" PRIu64 ", src1_tag: %" PRIu64 " (ready=%d), src2_tag: %" PRIu64 " (ready=%d)}", 0, 0UL, 0UL, 0, 0UL, 0); // TODO: fix me
-        } else if (!(printed_idx & 0x1)) {
-            printf("\n    {fired: %d, tag: %" PRIu64 ", src1_tag: %" PRIu64 " (ready=%d), src2_tag: %" PRIu64 " (ready=%d)}", 0, 0UL, 0UL, 0, 0UL, 0); // TODO: fix me
-        } else {
-            printf(", {fired: %d, tag: %" PRIu64 ", src1_tag: %" PRIu64 " (ready=%d), src2_tag: %" PRIu64 " (ready=%d)}", 0, 0UL, 0UL, 0, 0UL, 0); // TODO: fix me
-        }
-
-        printed_idx++;
-    }
-    if (!printed_idx) {
-        printf("    (scheduling queue empty)");
-    }
-    printf("\n");
-}
-
-static void print_rob(void) {
-    size_t printed_idx = 0;
-    printf("    Next tag to retire (head of ROB): %" PRIu64 "\n", 0UL); // TODO: fix me
-    for (/* ??? */; /* ??? */ false; /* ??? */) {
-        if (printed_idx == 0) {
-            printf("    { tag: %" PRIu64 ", interrupt: %d }", 0UL, 0); // TODO: fix me
-        } else if (!(printed_idx & 0x3)) {
-            printf("\n    { tag: %" PRIu64 ", interrupt: %d }", 0UL, 0); // TODO: fix me
-        } else {
-            printf(", { tag: %" PRIu64 " interrupt: %d }", 0UL, 0); // TODO: fix me
-        }
-
-        printed_idx++;
-    }
-    if (!printed_idx) {
-        printf("    (ROB empty)");
-    }
-    printf("\n");
-}
-#endif
+uint64_t NUM_ALU, NUM_MUL, NUM_MEM, NUM_FUS, INDEX_SIZE, TAG_SIZE, CACHE_SETS, SCHED_SIZE, ROB_SIZE, MAX_FETCH, MAX_RETIRE;
+uint64_t curr_tag = 0;
 
 /* -------------------------- CLASSES --------------------------- */
 
@@ -111,22 +42,20 @@ class instruction {
 /* reservation station */
 class reserv_stat {
     public:
-        int8_t dest, src1, src2;
+        int8_t dest;
         uint64_t tagd, tag1, tag2, ls_addr;
         bool ready1, ready2;
-        int8_t fu;
+        opcode_t opcode;
 
-        reserv_stat(int8_t _dest, int8_t _src1, int8_t _src2, uint64_t _ls_addr, int8_t _fu) {
+        reserv_stat(int8_t _dest, uint64_t _ls_addr, opcode_t _opcode) {
             dest = _dest;
-            src1 = _src1;
-            src2 = _src2;
             tagd = 0;
             tag1 = 0;
             tag2 = 0;
             ls_addr = _ls_addr;
             ready1 = false;
             ready2 = false;
-            fu = _fu;
+            opcode = _opcode;
         }
 };
 
@@ -135,15 +64,18 @@ class result_bus {
     public:
         uint64_t tag;
         int8_t reg;
+        bool busy;
 
         result_bus() {
             tag = 0;
             reg = -1;
+            busy = false;
         }
 
         void flush() {
             tag = 0;
             reg = -1;
+            busy = false;
         }
 };
 
@@ -171,7 +103,7 @@ class rob_entry {
         bool ready, excpt;
         int8_t reg;
 
-        rob_entry(uint64_t _tag, uint64_t _pc, uint64_t, bool _ready, bool _excpt, int8_t _reg) {
+        rob_entry(uint64_t _tag, uint64_t _pc, bool _ready, bool _excpt, int8_t _reg) {
             tag = _tag;
             pc = _pc;
             ready = _ready;
@@ -197,23 +129,32 @@ class funct_unit {
     public:
         uint8_t type;
         opcode_t opcode;
-        uint64_t pipeline[MUL_STAGES]; /* only use first stage for mul and mem */
-        uint64_t stalls; /* only used with loads */
+        bool busy;
+        int8_t dregs[MUL_STAGES]; /* only use first stage for mul and mem */
+        uint64_t dtags[MUL_STAGES]; /* only use first stage for mul and mem */
+        uint64_t stalls, ls_addr; /* only used with loads */
 
         funct_unit(uint64_t _type) {
             type = _type;
             opcode = (opcode_t) NULL;
-            for (int i = 0; i < MUL_STAGES; i ++) {
-                pipeline[i] = 0;
+            busy = false;
+            for (uint64_t i = 0; i < MUL_STAGES; i ++) {
+                dregs[i] = -1;
+                dtags[i] = 0;
             }
+            stalls = 0;
+            ls_addr = 0;
         }
 
         void flush() {
             opcode = (opcode_t) NULL;
-            for (int i = 0; i < MUL_STAGES; i ++) {
-                pipeline[i] = 0;
+            busy = false;
+            for (uint64_t i = 0; i < MUL_STAGES; i ++) {
+                dregs[i] = -1;
+                dtags[i] = 0;
             }
             stalls = 0;
+            ls_addr = 0;
         }
 };
 
@@ -228,11 +169,11 @@ list<reserv_stat*> schedq;
 /* reorder buffer */
 list<rob_entry*> rob;
 
-/* result buses */
-result_bus ** rbuses;
-
 /* scoreboard */
 funct_unit ** scoreb;
+
+/* result buses */
+result_bus ** rbuses;
 
 /* data cache */
 cache_entry ** dcache;
@@ -240,17 +181,11 @@ cache_entry ** dcache;
 /* messy register file */
 reg_entry ** messy;
 
-/* ---------------------- USEFUL VARIABLES ---------------------- */
-
-uint64_t NUM_ALU, NUM_MUL, NUM_MEM, NUM_FUS, INDEX_SIZE, TAG_SIZE, CACHE_SETS, SCHED_SIZE, ROB_SIZE, MAX_FETCH, MAX_RETIRE;
-uint64_t reserved = 0;
-uint64_t curr_tag = 0;
-
 /* ---------------------- HELPER FUNCTIONS ---------------------- */
 
 /* fetches instructions from the icache and appends them to the dispatch queue */
 static void stage_fetch(procsim_stats_t *stats) {
-    for (int i = 0; i < MAX_FETCH; i ++) {
+    for (uint64_t i = 0; i < MAX_FETCH; i ++) {
         /* fetch instruction using driver */
         const inst_t * instr = procsim_driver_read_inst();
 
@@ -262,93 +197,264 @@ static void stage_fetch(procsim_stats_t *stats) {
 
         /* delete temporary object */
         delete temp;
+
+        /* increment stats */
+        stats->instructions_fetched ++;
     }
 }
 
 /* looks through dispatch queue, decodes instructions, and inserts into the scheduling queue */
 static void stage_dispatch(procsim_stats_t *stats) {
-    /*
-    Dispatch will use the tags and ready bits from the messy register file to set up the reservation station
-    in the scheduling queue. Dispatch also allocates a new tag for each instruction regardless of whether
-    it has a destination register. This is done to maintain program order in the ROB and across the
-    processor where necessary. The dispatch stage will allocate room in the ROB for the instruction as it places it into a
-    reservation station.
-    */
+    uint64_t num_dispatched = 0;
 
     /* make sure there is space in the scheduling queue and rob */
-    if (schedq.size() < SCHED_SIZE && (rob.size() + reserved) < ROB_SIZE) {
-        instruction * temp = dispq.front();
+    while (schedq.size() < SCHED_SIZE && rob.size() < ROB_SIZE) {
+        num_dispatched ++;
+
+        /* get instruction from dispq */
+        instruction * instr = dispq.front();
+
+        /* update ready values and tags of sources */
+        reserv_stat * res_stat = new reserv_stat(instr->dest, instr->ls_addr, instr->opcode);
+        if (messy[instr->src1]->ready) {
+            res_stat->ready1 = true;
+        }
+        else {
+            res_stat->tag1 = messy[instr->src1]->tag;
+            res_stat->ready1 = false;
+        }
+        if (messy[instr->src2]->ready) {
+            res_stat->ready2 = true;
+        }
+        else {
+            res_stat->tag2 = messy[instr->src2]->tag;
+            res_stat->ready2 = false;
+        }
+
+        /* give destination register unique tag and set not ready */
+        curr_tag ++;
+        res_stat->tagd = curr_tag;
+        if (res_stat->dest != -1) {
+            messy[res_stat->dest]->tag = curr_tag;
+            messy[res_stat->dest]->ready = false;
+        }
+        else { /* store function - no dest register */
+            messy[res_stat->dest]->ready = true;
+        }
+        
+        /* add to back of scheduling queue */
+        schedq.push_back(res_stat);
+
+        /* add incomplete instruction to rob */
+        rob_entry * rob_ntry = new rob_entry(curr_tag, instr->pc, false, instr->intrpt, res_stat->dest);
+        rob.push_back(rob_ntry);
+        delete res_stat;
+        delete rob_ntry;
+
+        /* pop instruction from dispq */
         dispq.pop_front();
-        reserved ++;
+    }
+
+    if (num_dispatched == 0 && rob.size() == ROB_SIZE) {
+        /* increment number of cycles with no dispatches bc rob is full */
+        stats->rob_stall_cycles ++;
     }
 }
 
 /* looks through scheduling queue and fires instructions */
 static void stage_schedule(procsim_stats_t *stats) {
-    /*
-        If multiple instructions can be fired at the same time, they
-        are fired in program order (but still within the same cycle). This means that if 2 instructions are
-        both ready for a single function unit, the instruction that comes first in program order would fire
-        first. Instructions stay in the SQ until they retire.
-        Load/store can fire only if no Load or Store instruction in the scheduling queue that both has an
-        index conflict in the cache and comes earlier in program order (tag order)
-    */
+    uint64_t num_fired = 0;
 
-}
+    list<reserv_stat*>::iterator it;
+    for (it = schedq.begin(); it != schedq.end(); it ++) {
+        /* search result buses for new values to update scheduling queue */
+        for (uint64_t i = 0; i < NUM_FUS; i ++) {
+            if (rbuses[i]->tag == (*it)->tag1) {
+                (*it)->ready1 = true;
+            }
+            if (rbuses[i]->tag == (*it)->tag2) {
+                (*it)->ready2 = true;
+            }
+        }
 
-/* moves instructions through pipelined FUs; removes instruction from scehd queue when it has completed */
-static void stage_exec(procsim_stats_t *stats) {
-    /* iterate through the function units - first is alu */
-    for (int i = 0; i < NUM_ALU; i ++) {
-        
-    }
+        /* determine required function unit */
+        uint64_t fu;
+        if ((*it)->opcode == OPCODE_ADD || (*it)->opcode == OPCODE_BRANCH) {
+            fu = ALU;
+        }
+        else if((*it)->opcode == OPCODE_MUL) {
+            fu = MUL;
+        }
+        else {
+            fu = MEM;
+        }
 
-    /* mul function units */
-    for (int i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
-        
-    }
-
-    /* mem function units */
-    for (int i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
-        if (scoreb[i]->opcode == OPCODE_LOAD) {
-            uint64_t addr = scoreb[i]->pipeline[0];
-            uint64_t tag = (addr >> (INDEX_SIZE + DCACHE_B)) & ((1 << TAG_SIZE) - 1);
-            uint64_t index = (addr >> DCACHE_B) & ((1 << INDEX_SIZE) - 1);
-
-            if (scoreb[i]->stalls > 0) {
-                if (scoreb[i]->stalls == L2_LATENCY_CYCLES) {
-                    /* set fu to not busy */
-                    scoreb[i]->stalls = 0;
-                    scoreb[i]->pipeline[0] = 0;
-
-                    /* bring L2 data to cache */
-                    dcache[index]->tag = tag;
-                    dcache[index]->valid = true;
-
-                    /* remove instruction from sched q and put in rob */
-
-
-                    /* update ready bits in messy and schedq */
-
-                }
-                else {
-                    /* still waiting on L2 */
-                    scoreb[i]->stalls ++;
+        /* wake up and fire if reservation station if ready */
+        if ((*it)->ready1 && (*it)->ready2) {
+            /* enfore total store ordering before checking everything */
+            if (fu == MEM) {
+                uint64_t this_index = ((*it)->ls_addr >> DCACHE_B) & ((1 << INDEX_SIZE) - 1);
+                list<reserv_stat*>::iterator tso;
+                for (tso = schedq.begin(); tso != it; tso ++) {
+                    uint64_t tso_index = ((*tso)->ls_addr >> DCACHE_B) & ((1 << INDEX_SIZE) - 1);
+                    if (tso_index == this_index) {
+                        /* index conflict with instruction earlier in queue - skip rest of iteration */
+                        continue;
+                    }
                 }
             }
-            else {
-                if (tag != dcache[index]->tag || !dcache[index]->valid) {
-                    /* cache miss */
-                    scoreb[i]->stalls ++; 
+
+            for (uint64_t i = 0; i < NUM_FUS; i ++) {
+                /* find open functional unit */
+                if (scoreb[i]->type == fu && !scoreb[i]->busy) {
+                    /* fire instruction */
+                    scoreb[i]->busy = true;
+                    scoreb[i]->dregs[0] = (*it)->dest;
+                    scoreb[i]->dtags[0] = (*it)->tagd;
+                    scoreb[i]->ls_addr = (*it)->ls_addr;
+                    scoreb[i]->opcode = (*it)->opcode;
+
+                    num_fired ++;
                 }
             }
         }
     }
 
-    // when instructions are in the final pipeline stage of an FU and aren't stalled, set ready bits in the messy & schedq
+    if (num_fired == 0) {
+        /* increment number of cycles where no instructions fired */
+        stats->no_fire_cycles ++;
+    }
+}
+
+/* moves instructions through pipelined FUs; removes instruction from sched queue when it has completed */
+static void stage_exec(procsim_stats_t *stats) {
+    /* iterate through the function units - first is alu */
+    for (uint64_t i = 0; i < NUM_ALU; i ++) {
+        /* send to result bus if it is not busy */
+        if (!rbuses[i]->busy) {
+            rbuses[i]->busy = true;
+            rbuses[i]->tag = scoreb[i]->dtags[0];
+            rbuses[i]->reg = scoreb[i]->dregs[0];
+
+            /* set fu to not busy */
+            scoreb[i]->busy = false;
+        }
+    }
     
-    
-    
+    /* mul function units */
+    for (uint64_t i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
+        /* send to result bus if it is not busy */
+        if (!rbuses[i]->busy) {
+            rbuses[i]->busy = true;
+            rbuses[i]->tag = scoreb[i]->dtags[2];
+            rbuses[i]->reg = scoreb[i]->dregs[2];
+
+            /* set fu to not busy */
+            scoreb[i]->busy = false;
+
+            /* move instructions along pipeline */
+            scoreb[i]->dregs[2] = scoreb[i]->dregs[1];
+            scoreb[i]->dregs[1] = scoreb[i]->dregs[0];
+            scoreb[i]->dtags[2] = scoreb[i]->dtags[1];
+            scoreb[i]->dtags[1] = scoreb[i]->dtags[0];
+        }
+    }
+
+    /* mem function units */
+    for (uint64_t i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
+        if (scoreb[i]->opcode == OPCODE_LOAD) {
+            uint64_t addr = scoreb[i]->ls_addr;
+            uint64_t tag = (addr >> (INDEX_SIZE + DCACHE_B)) & ((1 << TAG_SIZE) - 1);
+            uint64_t index = (addr >> DCACHE_B) & ((1 << INDEX_SIZE) - 1);
+
+            if (scoreb[i]->stalls > 0) {
+                if (scoreb[i]->stalls == L2_LATENCY_CYCLES) {
+                    /* bring L2 data to cache */
+                    dcache[index]->tag = tag;
+                    dcache[index]->valid = true;
+
+                    /* update stats */
+                    stats->dcache_reads ++;
+
+                    /* send to result bus if it is not busy */
+                    if (!rbuses[i]->busy) {
+                        rbuses[i]->busy = true;
+                        rbuses[i]->tag = scoreb[i]->dtags[0];
+                        rbuses[i]->reg = scoreb[i]->dregs[0];
+
+                        /* set fu to not busy and reset stalls */
+                        scoreb[i]->stalls = 0;
+                        scoreb[i]->busy = false;
+                    }
+                }
+                else if (scoreb[i]->stalls < L2_LATENCY_CYCLES) {
+                    /* still waiting on L2 */
+                    scoreb[i]->stalls ++;
+                }
+                else { /* already brought data in but result bus was busy */
+                    /* send to result bus if it is not busy */
+                    if (!rbuses[i]->busy) {
+                        rbuses[i]->busy = true;
+                        rbuses[i]->tag = scoreb[i]->dtags[0];
+                        rbuses[i]->reg = scoreb[i]->dregs[0];
+
+                        /* set fu to not busy and reset stalls */
+                        scoreb[i]->stalls = 0;
+                        scoreb[i]->busy = false;
+                    }
+                }
+            }
+            else {
+                if (tag != dcache[index]->tag || !dcache[index]->valid) {
+                    /* cache miss */
+                    scoreb[i]->stalls ++;
+
+                    /* update stats */
+                    stats->dcache_read_misses ++;
+                }
+                else {
+                    /* update stats */
+                    stats->dcache_reads ++;
+                    
+                    /* cache hit - send to result bus if it is not busy */
+                    if (!rbuses[i]->busy) {
+                        rbuses[i]->busy = true;
+                        rbuses[i]->tag = scoreb[i]->dtags[0];
+                        rbuses[i]->reg = scoreb[i]->dregs[0];
+
+                        /* set fu to not busy */
+                        scoreb[i]->busy = false;
+                    }
+                }
+            }
+        }
+    }
+
+    for (uint64_t i = 0; i < NUM_FUS; i ++) {
+        /* update messy register with result bus */
+        if (rbuses[i]->busy && messy[rbuses[i]->reg]->tag == rbuses[i]->tag) {
+            if (rbuses[i]->reg != -1) {
+                messy[rbuses[i]->reg]->ready = true;
+            }
+            rbuses[i]->busy = false;
+        }
+
+        /* update rob with result buses */
+        list<rob_entry*>::iterator it;
+        for (it = rob.begin(); it != rob.end(); it ++) {
+            if ((*it)->tag == rbuses[i]->tag) {
+                (*it)->ready = true;
+
+                /* delete completed instructions from scheduling queue */
+                list<reserv_stat*>::iterator it;
+                for (it = schedq.begin(); it != schedq.end(); it ++) {
+                    if ((*it)->tagd == rbuses[i]->tag) {
+                        schedq.erase(it);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /* pops instructions from head of ROB and returns number of instructions retired */
@@ -356,16 +462,26 @@ static uint64_t stage_state_update(procsim_stats_t *stats, bool *retired_interru
     uint64_t num_retired = 0;
 
     /* iterate through rob for length of retire width */
-    for (int i = 0; i < MAX_RETIRE; i ++) {
+    for (uint64_t i = 0; i < MAX_RETIRE; i ++) {
         if (rob.size() > 0) {
             rob_entry * front = rob.front();
-            rob.pop_front();
-
-            /* interrupt found, set retired interrupt flag to true and return */
-            if (front->excpt) {
-                *retired_interrupt_out = true;
+            if (front->ready) {
                 num_retired ++;
-                return num_retired;
+                stats->instructions_retired ++;
+
+                /* interrupt found, set retired interrupt flag to true and return */
+                if (front->excpt) {
+                    *retired_interrupt_out = true;
+                    return num_retired;
+                }
+
+                /* architectural file is written to by non-store instructions */
+                if (front->reg != -1) {
+                    stats->arf_writes ++;
+                }
+
+                /* pop from rob */
+                rob.pop_front();
             }
         }
     }
@@ -382,19 +498,15 @@ static void flush_pipeline(void) {
     schedq.clear();
     rob.clear();
 
-    /* erase reserved slots */
-    reserved = 0;
-
     /* flush and reset all function units and result buses */
-    for (int i = 0; i < NUM_FUS; i ++) {
+    for (uint64_t i = 0; i < NUM_FUS; i ++) {
         /* dcache is left as is - but pending loads not fulfilled */
         scoreb[i]->flush();
-        rbuses[i]->flush();
     }
 
     /* set all messy regs to ready */
-    for (int i = 0; i < NUM_REGS; i ++) {
-        messy[i]->flush(curr_tag); // FIX ME??
+    for (uint64_t i = 0; i < NUM_REGS; i ++) {
+        messy[i]->flush(curr_tag++);
     }
 }
 
@@ -415,66 +527,42 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
     MAX_FETCH  = sim_conf->fetch_width;
     MAX_RETIRE = sim_conf->retire_width;
 
-    /* initialize result buses to empty */
-    rbuses = new result_bus*[NUM_FUS];
-    for (int i = 0; i < NUM_FUS; i ++) {
-        rbuses[i] = new result_bus();
-    }
-
     /* initialize scoreboard to all fus not busy */
     scoreb = new funct_unit*[NUM_FUS];
-    for (int i = 0; i < NUM_ALU; i ++) {
+    for (uint64_t i = 0; i < NUM_ALU; i ++) {
         scoreb[i] = new funct_unit(ALU);
     }
-    for (int i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
+    for (uint64_t i = NUM_ALU; i < (NUM_ALU + NUM_MUL); i ++) {
         scoreb[i] = new funct_unit(MUL);
     }
-    for (int i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
+    for (uint64_t i = (NUM_ALU + NUM_MUL); i < NUM_FUS; i ++) {
         scoreb[i] = new funct_unit(MEM);
     }
 
     /* set all dcache entries to empty and invalid */
     dcache = new cache_entry*[CACHE_SETS];
-    for (int i = 0; i < CACHE_SETS; i ++) {
+    for (uint64_t i = 0; i < CACHE_SETS; i ++) {
         dcache[i] = new cache_entry();
     }
 
     /* set all registers in messy to ready and empty */
     messy = new reg_entry*[NUM_REGS];
-    for (int i = 0; i < NUM_REGS; i ++) {
+    for (uint64_t i = 0; i < NUM_REGS; i ++) {
         messy[i] = new reg_entry();
     }
-
-    #ifdef DEBUG
-    printf("\nScheduling queue capacity: %lu instructions\n", 0UL); // TODO: fix me
-    printf("Initial messy RF state:\n");
-    print_messy_rf();
-    printf("\n");
-    #endif
 }
  
 /* calls the stage functions above in reverse order */
 uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
-    #ifdef DEBUG
-    printf("================================ Begin cycle %" PRIu64 " ================================\n", stats->cycles);
-    #endif
 
     /* retired_interrupt_out is set by stage_state_update() */
     uint64_t retired_this_cycle = stage_state_update(stats, retired_interrupt_out);
 
     if (*retired_interrupt_out) {
-        #ifdef DEBUG
-        printf("%" PRIu64 " instructions retired. Retired interrupt, so flushing pipeline!\n", retired_this_cycle);
-        #endif
-
         /* after retiring an interrupt, flush pipeline immediately and pick up where sim left off in the next cycle */
         stats->interrupts++;
         flush_pipeline();
     } else {
-        #ifdef DEBUG
-        printf("%" PRIu64 " instructions retired. Did not retire interrupt, so proceeding with other pipeline stages.\n", retired_this_cycle);
-        #endif
-
         /* if interrupt was not retired, continue simulating the other pipeline stages */
         stage_exec(stats);
         stage_schedule(stats);
@@ -482,19 +570,24 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
         stage_fetch(stats);
     }
 
-    #ifdef DEBUG
-    printf("End-of-cycle dispatch queue usage: %lu\n", 0UL); // TODO: fix me
-    printf("End-of-cycle messy RF state:\n");
-    print_messy_rf();
-    printf("End-of-cycle scheduling queue state:\n");
-    print_schedq();
-    printf("End-of-cycle ROB state:\n");
-    print_rob();
-    printf("================================ End cycle %" PRIu64 " ================================\n", stats->cycles);
-    #endif
-
-    /* increment max_usages and avg_usages in stats TODO */
+    /* increment number of cycles */
     stats->cycles++;
+
+    /* adjust max usage metrics */
+    if (stats->dispq_max_usage < dispq.size()) {
+        stats->dispq_max_usage = dispq.size();
+    }
+    if (stats->schedq_max_usage < schedq.size()) {
+        stats->schedq_max_usage = schedq.size();
+    }
+    if (stats->rob_max_usage < rob.size()) {
+        stats->rob_max_usage = rob.size();
+    }
+
+    /* increment avg usages measurements (avg calculated at end of sim) */
+    stats->dispq_avg_usage += dispq.size();
+    stats->schedq_avg_usage += schedq.size();
+    stats->rob_avg_usage += rob.size();
 
     /* return the number of instructions retired this cycle (including the interrupt if there was one) */
     return retired_this_cycle;
@@ -503,21 +596,28 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
 /* free allocated memory and calculate some final statistics */
 void procsim_finish(procsim_stats_t *stats) {
     /* free allocated memory */
-    for (int i = 0; i < NUM_FUS; i ++) {
-        delete [] rbuses[i];
+    for (uint64_t i = 0; i < NUM_FUS; i ++) {
         delete [] scoreb[i];
     }
-    for (int i = 0; i < CACHE_SETS; i ++) {
+    for (uint64_t i = 0; i < CACHE_SETS; i ++) {
         delete [] dcache[i];
     }
-    for (int i = 0; i < NUM_REGS; i ++) {
+    for (uint64_t i = 0; i < NUM_REGS; i ++) {
         delete [] messy[i];
     }
-    delete [] rbuses;
     delete [] scoreb;
     delete [] dcache;
     delete [] messy;
 
-    /* calculate final statistics */
+    /* calculate final average use statistics */
+    stats->dispq_avg_usage = stats->dispq_avg_usage / stats->cycles;
+    stats->schedq_avg_usage = stats->schedq_avg_usage / stats->cycles;
+    stats->rob_avg_usage = stats->rob_avg_usage / stats->cycles;
 
+    /* calculate final cache statistics */
+    stats->dcache_read_miss_ratio = stats->dcache_read_misses / stats->dcache_reads;
+    stats->dcache_read_aat = 1 + stats->dcache_read_miss_ratio * L2_LATENCY_CYCLES;
+
+    /* calculate final ipc */
+    stats->ipc = stats->instructions_retired / stats->cycles;
 }
