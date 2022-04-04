@@ -101,7 +101,8 @@ extern const inst_t *procsim_driver_read_inst(void);
 extern void procsim_init(const procsim_conf_t *sim_conf,
                          procsim_stats_t *stats);
 extern uint64_t procsim_do_cycle(procsim_stats_t *stats,
-                                 bool *retired_interrupt_out);
+                                 bool *retired_interrupt_out,
+                                 bool *end_simulation);
 extern void procsim_finish(procsim_stats_t *stats);
 
 #endif

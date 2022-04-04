@@ -11,7 +11,6 @@
 static size_t n_insts;
 static inst_t *insts;
 static uint64_t fetch_inst_idx;
-bool end_sim = false;
 
 // Print error usage
 static void print_err_usage(const char *err) {
@@ -120,8 +119,6 @@ static inst_t *read_entire_trace(FILE *trace, size_t *size_insts_out, procsim_co
 
 const inst_t *procsim_driver_read_inst(void) {
     if (fetch_inst_idx >= n_insts) {
-        end_sim = true;
-        // printf("ENDING SIMULATION\n");
         return NULL;
     } else {
         return &insts[fetch_inst_idx++];
@@ -238,9 +235,10 @@ int main(int argc, char *const argv[])
 
     uint64_t retired_inst_idx = 0;
     fetch_inst_idx = 0;
-    while (retired_inst_idx < n_insts && !end_sim) {
+    bool end_simulation = false;
+    while (retired_inst_idx < n_insts && !end_simulation) {
         bool retired_interrupt = false;
-        uint64_t retired_this_cycle = procsim_do_cycle(&sim_stats, &retired_interrupt);
+        uint64_t retired_this_cycle = procsim_do_cycle(&sim_stats, &retired_interrupt, &end_simulation);
         retired_inst_idx += retired_this_cycle;
 
         // Check for deadlocks (e.g., an empty submission)

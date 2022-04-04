@@ -6,6 +6,8 @@
 **/ref_outs
 **/traces
 **/student_outs
+**/test_outs
+**/*.trace
 **/*.out
 **/*.pdf
 **/*.gz

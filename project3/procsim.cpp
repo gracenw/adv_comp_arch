@@ -269,34 +269,6 @@ static void print_rob(void) {
     }
     printf("\n");
 }
-
-// static void print_rbuses(void) {
-//     for (uint64_t busno = 0; busno < NUM_FUS; busno++) {
-//         if (busno == 0) {
-//             printf("    BUS%" PRIu64 "={tag: %" PRIu64 ", reg: %i, busy: %d}", busno, rbuses[busno].tag, rbuses[busno].reg, rbuses[busno].busy); 
-//         } else if (!(busno & 0x3)) {
-//             printf("\n    BUS%" PRIu64 "={tag: %" PRIu64 ", reg: %i, busy: %d}", busno, rbuses[busno].tag, rbuses[busno].reg, rbuses[busno].busy); 
-//         } else {
-//             printf(", BUS%" PRIu64 "={tag: %" PRIu64 ", reg: %i, busy: %d}", busno, rbuses[busno].tag, rbuses[busno].reg, rbuses[busno].busy); 
-//         }
-//     }
-//     printf("\n");
-// }
-
-// static void print_fus(void) {
-//     static const char * opcode_names[] = {NULL, NULL, "ADD", "MUL", "LOAD", "STORE", "BRANCH"};
-//     for (uint64_t unitno = 0; unitno < NUM_FUS; unitno++) {
-//         if (scoreb[unitno].type == ALU) {
-//             printf("    FU%" PRIu64 "={type: ALU, opcode: %s, tag: %" PRIu64 ", reg: %i, busy: %d}\n", unitno, opcode_names[scoreb[unitno].opcode], scoreb[unitno].dtags[0], scoreb[unitno].dregs[0], scoreb[unitno].busy); 
-//         }
-//         else if (scoreb[unitno].type == MUL) {
-//             printf("    FU%" PRIu64 "={type: MUL, opcode: MUL, tags: [%" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "], regs: [%i, %i, %i, %i], busy: %d}\n", unitno, scoreb[unitno].dtags[0], scoreb[unitno].dtags[1], scoreb[unitno].dtags[2], scoreb[unitno].dtags[3], scoreb[unitno].dregs[0], scoreb[unitno].dregs[1], scoreb[unitno].dregs[2], scoreb[unitno].dregs[3], scoreb[unitno].busy); 
-//         }
-//         else {
-//             printf("    FU%" PRIu64 "={type: LSU, opcode: %s, tag: %" PRIu64 ", reg: %i, l2 stall cycles: %i, l/s addr: %" PRIu64 ", busy: %d}\n", unitno, opcode_names[scoreb[unitno].opcode], scoreb[unitno].dtags[0], scoreb[unitno].dregs[0], scoreb[unitno].l2_stall_cycles, scoreb[unitno].ls_addr, scoreb[unitno].busy);
-//         }
-//     }
-// }
 #endif
 
 /* ---------------------- HELPER FUNCTIONS ---------------------- */
@@ -313,12 +285,6 @@ static uint64_t stage_state_update(procsim_stats_t *stats, bool *retired_interru
                 num_retired ++;
                 stats->instructions_retired ++;
 
-                /* interrupt found, set retired interrupt flag to true and return */
-                if ((*it).excpt) {
-                    *retired_interrupt_out = true;
-                    return num_retired;
-                }
-
                 /* architectural file is written to by non-store instructions */
                 if ((*it).reg != -1) {
                     stats->arf_writes ++;
@@ -326,11 +292,23 @@ static uint64_t stage_state_update(procsim_stats_t *stats, bool *retired_interru
                     #ifdef DEBUG
                     printf("Retiring instruction with tag %" PRIu64 ". Writing R%" PRId8 " to architectural register file\n", (*it).tag, (*it).reg);
                     #endif
+
+                    /* interrupt found, set retired interrupt flag to true and return */
+                    if ((*it).excpt) {
+                        *retired_interrupt_out = true;
+                        return num_retired;
+                    }
                 }
                 else {
                     #ifdef DEBUG
                     printf("Retiring instruction with tag %" PRIu64 " (Not writing to architectural register file because no dest)\n", (*it).tag);
                     #endif
+
+                    /* interrupt found, set retired interrupt flag to true and return */
+                    if ((*it).excpt) {
+                        *retired_interrupt_out = true;
+                        return num_retired;
+                    }
                 }
 
                 /* pop from rob */
@@ -368,13 +346,6 @@ static void flush_pipeline(void) {
         curr_tag ++;
     }
 }
-
-// bool cache_hit = false;
-// bool cache_miss = false;
-// bool cache_recovery = false;
-// uint64_t temp_tag = 0;
-// uint64_t temp_index = 0;
-// uint64_t temp_instr_tag = 0;
 
 /* moves instructions through pipelined FUs; removes instruction from sched queue when it has completed */
 static void stage_exec(procsim_stats_t *stats) {
@@ -431,19 +402,13 @@ static void stage_exec(procsim_stats_t *stats) {
                         /* bring L2 data to cache */
                         dcache[index].tag = tag;
                         dcache[index].valid = true;
-
-                        /* update stats */
-                        stats->dcache_reads ++;
+                        // stats->dcache_reads ++;
 
                         /* reset stall condition */
                         scoreb[i].l2_stall = false;
                         scoreb[i].l2_stall_cycles = 0;
 
                         #ifdef DEBUG
-                        // cache_recovery = true;
-                        // temp_index = index;
-                        // temp_tag = tag;
-                        // temp_instr_tag = scoreb[i].dtags[0];
                         printf("Got response from L2, updating dcache for read from instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 ")\n", scoreb[i].dtags[0], index, tag);
                         #endif
                     }
@@ -461,12 +426,9 @@ static void stage_exec(procsim_stats_t *stats) {
 
                         /* update stats */
                         stats->dcache_read_misses ++;
+                        stats->dcache_reads ++ ;
 
                         #ifdef DEBUG
-                        // cache_miss = true;
-                        // temp_index = index;
-                        // temp_tag = tag;
-                        // temp_instr_tag = scoreb[i].dtags[0];
                         printf("dcache miss for instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 "), stalling for " STRINGIFY(L2_LATENCY_CYCLES) " cycles\n", scoreb[i].dtags[0], index, tag);
                         #endif
                     }
@@ -475,10 +437,6 @@ static void stage_exec(procsim_stats_t *stats) {
                         stats->dcache_reads ++;
                          
                         #ifdef DEBUG
-                        // cache_miss = true;
-                        // temp_index = index;
-                        // temp_tag = tag;
-                        // temp_instr_tag = scoreb[i].dtags[0];
                         printf("dcache hit for instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 ")\n", scoreb[i].dtags[0], index, tag);
                         #endif
                     }
@@ -499,7 +457,7 @@ static void stage_exec(procsim_stats_t *stats) {
                 if (!rbuses[i].busy) {
                     /* send to result bus */
                     rbuses[i].busy = true;
-                    rbuses[i].reg = -1;
+                    rbuses[i].reg = scoreb[i].dregs[0];
                     rbuses[i].tag = scoreb[i].dtags[0];
                     
                     /* handle store - no longer busy */
@@ -549,21 +507,6 @@ static void stage_schedule(procsim_stats_t *stats) {
             }
         }
     }
-
-    // #ifdef DEBUG
-    // if (cache_recovery) {
-    //     printf("Got response from L2, updating dcache for read from instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 ")\n", temp_instr_tag, temp_index, temp_tag);
-    //     cache_recovery = false;
-    // }
-    // if (cache_miss) {
-    //     printf("dcache miss for instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 "), stalling for " STRINGIFY(L2_LATENCY_CYCLES) " cycles\n", temp_instr_tag, temp_index, temp_tag);
-    //     cache_miss = false;
-    // }
-    // if (cache_hit) {
-    //     printf("dcache hit for instruction with tag %" PRIu64 " (dcache index: %" PRIx64 ", dcache tag: %" PRIx64 ")\n", temp_instr_tag, temp_index, temp_tag);
-    //     cache_hit = false;
-    // }
-    // #endif
 
     uint64_t num_fired = 0;
 
@@ -644,12 +587,9 @@ static void stage_schedule(procsim_stats_t *stats) {
 
 /* looks through dispatch queue, decodes instructions, and inserts into the scheduling queue */
 static void stage_dispatch(procsim_stats_t *stats) {
-    uint64_t num_dispatched = 0;
 
     /* make sure there is space in the scheduling queue and rob */
     while (schedq.size() < SCHED_SIZE && rob.size() < ROB_SIZE && dispq.size() > 0) {
-        num_dispatched ++;
-
         /* get instruction from dispq */
         instruction instr = dispq.front();
 
@@ -685,8 +625,6 @@ static void stage_dispatch(procsim_stats_t *stats) {
         else {
             printf(". Assigning tag=%" PRIu64 " and setting src1_tag=%" PRIu64 ", src1_ready=%d, src2_tag=%" PRIu64 ", and src2_ready=%d\n", curr_tag, res_stat.tag1, res_stat.ready1, res_stat.tag2, res_stat.ready2);
         }
-
-
         #endif
 
         /* give destination register unique tag and set not ready */
@@ -713,11 +651,13 @@ static void stage_dispatch(procsim_stats_t *stats) {
         curr_tag ++;
     }
 
-    if (num_dispatched == 0 && rob.size() == ROB_SIZE) {
+    if (rob.size() == ROB_SIZE && schedq.size() < SCHED_SIZE && dispq.size() > 0) {
         /* increment number of cycles with no dispatches bc rob is full */
         stats->rob_stall_cycles ++;
     }
 }
+
+bool end_fetch = false;
 
 /* fetches instructions from the icache and appends them to the dispatch queue */
 static void stage_fetch(procsim_stats_t *stats) {
@@ -725,7 +665,11 @@ static void stage_fetch(procsim_stats_t *stats) {
         /* fetch instruction using driver */
         const inst_t * instr = procsim_driver_read_inst();
         if (instr == NULL) {
+            end_fetch = true;
             break;
+        }
+        else {
+            end_fetch = false;
         }
         
         /* create temp instruction */
@@ -790,10 +734,6 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
 
     #ifdef DEBUG
     printf("\nScheduling queue capacity: %lu instructions\n", SCHED_SIZE);
-    // printf("Initial function units state:\n");
-    // print_fus();
-    // printf("Initial result buses state:\n");
-    // print_rbuses();
     printf("Initial messy RF state:\n");
     print_messy_rf();
     printf("\n");
@@ -801,7 +741,7 @@ void procsim_init(const procsim_conf_t *sim_conf, procsim_stats_t *stats) {
 }
  
 /* calls the stage functions above in reverse order */
-uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
+uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out, bool *end_simulation) {
     #ifdef DEBUG
     printf("================================ Begin cycle %" PRIu64 " ================================\n", stats->cycles);
     #endif
@@ -826,15 +766,18 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
         stage_exec(stats);
         stage_schedule(stats);
         stage_dispatch(stats);
-        stage_fetch(stats);
+        if (!end_fetch || retired_interrupt_out) {
+            stage_fetch(stats);
+        }
+        else {
+            if (rob.size() == 0) {
+                *end_simulation = true;
+            }
+        }
     }
 
     #ifdef DEBUG
     printf("End-of-cycle dispatch queue usage: %lu\n", dispq.size());
-    // printf("End-of-cycle function unit state:\n");
-    // print_fus();
-    // printf("End-of-cycle result buses state:\n");
-    // print_rbuses();
     printf("End-of-cycle messy RF state:\n");
     print_messy_rf();
     printf("End-of-cycle scheduling queue state:\n");
@@ -861,7 +804,15 @@ uint64_t procsim_do_cycle(procsim_stats_t *stats, bool *retired_interrupt_out) {
     /* increment avg usages measurements (avg calculated at end of sim) */
     stats->dispq_avg_usage += dispq.size();
     stats->schedq_avg_usage += schedq.size();
-    stats->rob_avg_usage += rob.size();
+
+    uint64_t rob_ready = 0;
+    list<rob_entry>::iterator it;
+    for (it = rob.begin(); it != rob.end(); it ++) {
+        if ((*it).ready) {
+            rob_ready ++;
+        }
+    }
+    stats->rob_avg_usage += rob_ready;
 
     /* return the number of instructions retired this cycle (including the interrupt if there was one) */
     return retired_this_cycle;
