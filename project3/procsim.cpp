@@ -373,6 +373,10 @@ static void stage_exec(procsim_stats_t *stats) {
                 scoreb[i].dtags[j - 1] = 0;
             }
         }
+        if (scoreb[i].dregs[0] == -1) {
+            /* set fu to not busy */
+            scoreb[i].busy = false;
+        }
         if (!rbuses[i].busy && scoreb[i].dtags[3] > 0) {
             /* send to result bus if it is not busy */
             rbuses[i].busy = true;
