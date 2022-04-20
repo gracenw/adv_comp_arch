@@ -19,7 +19,6 @@ typedef enum {
     MESI_PRO,
     MOESI_PRO,
     MOSI_PRO,
-    MOSIF_PRO,
     NULL_PRO,
     MEM_PRO
 } protocol_t;

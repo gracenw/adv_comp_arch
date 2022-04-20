@@ -4,7 +4,7 @@ set -e
 exe=./dirsim
 student_stat_dir=student_outs
 traces=( 4proc 8proc 16proc )
-protocols=( MI MSI MESI MOSIF )
+protocols=( MI MSI MESI )
 
 banner() {
     local message=$1

@@ -24,7 +24,7 @@ const char *__asan_default_options() { return "detect_leaks=0"; }
 void usage (void)
 {
     fprintf (stderr, "Usage:\n");
-    fprintf (stderr, "\t-p <protocol> (choices MI, MSI, MESI, MOSIF)\n");
+    fprintf (stderr, "\t-p <protocol> (choices MI, MSI, MESI)\n");
     fprintf (stderr, "\t-t <trace directory>\n");
     fprintf (stderr, "\t-h prints this useful message>\n");
 }
@@ -116,10 +116,6 @@ int main (int argc, char *argv[])
     else if (!strcmp(protocol,"MOESI"))
     {
     	settings.protocol = MOESI_PRO;
-    }
-    else if (!strcmp(protocol,"MOSIF"))
-    {
-    	settings.protocol = MOSIF_PRO;
     }
     else
     {

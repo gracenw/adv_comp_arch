@@ -75,8 +75,6 @@ void Directory_controller::tick()
         MSI_tick();
     } else if (settings.protocol == MESI_PRO) {
         MESI_tick();
-    } else if (settings.protocol == MOSIF_PRO) {
-        MOSIF_tick();
     } else {
         fatal_error ("Wrong Protocol input\n");
     }

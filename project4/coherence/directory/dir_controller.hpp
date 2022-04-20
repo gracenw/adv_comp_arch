@@ -78,7 +78,6 @@ public:
     void MI_tick();
     void MSI_tick();
     void MESI_tick();
-    void MOSIF_tick();
 
     void print_dir_queue();
 

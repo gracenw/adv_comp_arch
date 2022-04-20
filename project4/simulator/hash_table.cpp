@@ -7,7 +7,6 @@
 #include "MI_agent.hpp"
 #include "MSI_agent.hpp"
 #include "MESI_agent.hpp"
-#include "MOSIF_agent.hpp"
 #include "settings.hpp"
 #include "sharers.hpp"
 #include "sim.hpp"
@@ -33,9 +32,6 @@ Hash_entry::Hash_entry (Hash_table *t, paddr_t tag)
         break;
     case MESI_PRO:
     	agent = new MESI_agent (my_table, this);
-    	break;
-    case MOSIF_PRO:
-    	agent = new MOSIF_agent (my_table, this);
     	break;
     default:
         fatal_error ("Hash_entry: Unknown coherence protocol!\n");

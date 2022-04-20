@@ -99,7 +99,7 @@ void Simulator::run ()
 
     /** This must match what's in enums.h.  */
     const char *cp_str[9] = {"CACHE_PRO","MI_PRO","MSI_PRO","MESI_PRO",
-							 "MOESI_PRO","MOSI_PRO","MOSIF_PRO","NULL_PRO","MEM_PRO"};
+							 "MOESI_PRO","MOSI_PRO","NULL_PRO","MEM_PRO"};
 
     printf("CS6290 Sim - Begins  ");
     printf(" Cores: %d", settings.num_nodes);
