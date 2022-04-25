@@ -12,7 +12,10 @@ typedef enum {
     MESI_CACHE_I = 1,
     MESI_CACHE_S,
     MESI_CACHE_E,
-    MESI_CACHE_M
+    MESI_CACHE_M,
+    MESI_CACHE_IM, 
+    MESI_CACHE_IS, 
+    MESI_CACHE_SM
 } MESI_cache_state_t;
 
 class MESI_agent : public Agent {
@@ -35,6 +38,9 @@ public:
     inline void do_fetch_S (Mreq *request);
     inline void do_fetch_E (Mreq *request);
     inline void do_fetch_M (Mreq *request);
+    inline void do_fetch_IM (Mreq *request);
+    inline void do_fetch_IS (Mreq *request);
+    inline void do_fetch_SM (Mreq *request);
 };
 
 #endif // _MESI_CACHE_H
