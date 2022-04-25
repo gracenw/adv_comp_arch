@@ -7,7 +7,6 @@
 **/traces
 **/student_outs
 **/test_outs
-**/experiments
 **/*.trace
 **/*.out
 **/*.pdf
@@ -16,3 +15,5 @@
 **/branchsim
 **/procsim
 **/dirsim
+**/experiments
+**/.history

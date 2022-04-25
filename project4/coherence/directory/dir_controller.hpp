@@ -20,6 +20,8 @@ enum DIR_state {
     O,  // Owner
     S,  // Shared
     I,  // Invalid
+    IM,
+    IS,
     F,  // Forwarder
     FS, // Transient state from F->S
     FM, // Transient state from F->M
